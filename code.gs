@@ -822,8 +822,7 @@ function saveFollow(token, branch, phone, due, actionIdx, notes) {
     writeFollowChanges_(sh, vals, oldCount, changedIndexes);
     duplicateTransactionRows.sort(function(a,c){return c-a;}).forEach(function(rowNo){sh.deleteRow(rowNo);});
     if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') {
-      // The original branch snapshot already contains every line affected by
-      // this customer + due date. Reuse it; do not read the whole branch again.
+      // Reuse the original branch snapshot; do not read the whole branch again.
       // Notes/actions are stored at transaction level, so sync every item line
       // in each selected transaction, including lines with a different due date.
       const affectedRows = sourceRows.filter(function(r){
