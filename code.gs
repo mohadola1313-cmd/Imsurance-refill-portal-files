@@ -550,6 +550,9 @@ function upsertFollowStatesBatch_(updates) {
     } else if (mid && !s_(vals[ix][6])) {
       vals[ix][6]=mid;
       exact[full]=ix;
+      // This blank-Membership-ID row has now been claimed; do not reuse it
+      // for a different Membership ID later in the same batch.
+      delete blankMid[base];
     }
     vals[ix][2]=due;
     Object.keys(patch).forEach(function(k) {
