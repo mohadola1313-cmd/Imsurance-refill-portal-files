@@ -578,9 +578,12 @@ function setStatus(token, branch, phone, due, code, tdate, ttime, complete) {
   // Preserve the established automatic replacement rule at write time, rather than
   // depending on the next Explore visit to repair an older purchase line.
   const auto = applyAutomaticRefillCompletion_(b, rows);
-  if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') {
-    const affected = targets.concat(auto && auto.rows ? auto.rows : []);
-    firestoreSyncAffectedP0661_(affected);
+  if (b === 'P0661' && typeof firestoreSyncTransactionsP0661_ === 'function') {
+    // Expand each changed transaction to all its item lines from the same branch snapshot.
+    const txKeys = Object.create(null);
+    targets.concat(auto && auto.rows ? auto.rows : []).forEach(function(r){ txKeys[fkey_(r)] = true; });
+    const syncRows = rows.filter(function(r){ return !!txKeys[fkey_(r)]; });
+    firestoreSyncTransactionsP0661_(syncRows);
   }
   return targets.length;
 }
@@ -592,17 +595,24 @@ function setModifiedDue(token, branch, phone, code, tdate, ttime, newDate) {
   if(!r) throw new Error('This line was not found. Explore again and retry.');
   const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE];
   upsertFollowState_(b,phone,effective,tdate,ttime,code,r[I.MID],{mod:value});
-  if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_([r]);
+  if (b === 'P0661' && typeof firestoreSyncTransactionsP0661_ === 'function') {
+    firestoreSyncTransactionsP0661_(rows.filter(function(x){ return fkey_(x) === fkey_(r); }));
+  }
   return effective;
 }
 
 function setGroupDue(token, branch, phone, due, newDate) {
   const b=branchOf_(token,branch); newDate=String(newDate||'');
   if(newDate&&!isDate_(newDate)) throw new Error('Choose a valid date.');
-  const rows=readBranch_(b).filter(function(r){return r[I.PHONE]===phone&&eff_(r)===due;});
+  const sourceRows=readBranch_(b);
+  const rows=sourceRows.filter(function(r){return r[I.PHONE]===phone&&eff_(r)===due;});
   if(!rows.length) throw new Error('This customer is no longer due on that date. Explore again.');
   rows.forEach(function(r){const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE]; upsertFollowState_(b,phone,effective,r[I.DATE],r[I.TIME],r[I.CODE],r[I.MID],{mod:value});});
-  if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_(rows);
+  if (b === 'P0661' && typeof firestoreSyncTransactionsP0661_ === 'function') {
+    const txKeys=Object.create(null);
+    rows.forEach(function(r){txKeys[fkey_(r)]=true;});
+    firestoreSyncTransactionsP0661_(sourceRows.filter(function(r){return !!txKeys[fkey_(r)];}));
+  }
   return rows.length;
 }
 
@@ -828,7 +838,7 @@ function saveFollow(token, branch, phone, due, actionIdx, notes) {
       const affectedRows = sourceRows.filter(function(r){
         return r[I.PHONE] === phone && !!purch[r[I.DATE] + '|' + r[I.TIME]];
       });
-      firestoreSyncAffectedP0661_(affectedRows);
+      firestoreSyncTransactionsP0661_(affectedRows);
     }
     return keys.length;
   } finally {
