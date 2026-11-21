@@ -314,7 +314,7 @@ function firestoreBuildCurrentProjection_(branch, rows) {
   rows.forEach(function(r){
     const txKey=fkey_(r), txId=firestoreTxIdForRow_(r), lineId=firestoreLineIdForRow_(r);
     const state=follow[flinekey_(r)] || follow[txKey+'|'+s_(r[I.CODE])] || follow[txKey] || {};
-    const status=s_(r[I.ST]).toLowerCase()==='complete'?'complete':'incomplete';
+    const status=s_(state.status || r[I.ST]).toLowerCase()==='complete'?'complete':'incomplete';
     const actionIndex=Number(state.a)||0;
     const action=actionIndex>0&&actionIndex<=CONFIG.ACTIONS.length?CONFIG.ACTIONS[actionIndex-1]:'';
     const qty=Number(r[I.QTY])||0, net=Number(r[I.NET])||0;
@@ -334,6 +334,27 @@ function firestoreBuildCurrentProjection_(branch, rows) {
 
 function firestoreStableJson_(o) {
   const x={};Object.keys(o||{}).sort().forEach(function(k){if(k!=='updatedAt')x[k]=o[k];});return JSON.stringify(x);
+}
+
+// Hot-path sync for user actions: callers pass complete transaction rows from one Sheets snapshot.
+// This avoids two Firestore read round-trips (purchaseLines + transactions) before the commit.
+// It is safe because each affected transaction is rebuilt from all its canonical sheet item lines.
+function firestoreSyncTransactionsP0661_(rows) {
+  firestoreAssertTestTarget_();
+  rows = rows || [];
+  if (!rows.length) return {lineDocumentsWritten:0, transactionDocumentsWritten:0};
+  const projection = firestoreBuildCurrentProjection_(FIRESTORE_INDEX_CONFIG.BRANCH, rows);
+  const writes = [];
+  projection.lines.forEach(function(line) {
+    writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION, line.id, line));
+  });
+  projection.transactions.forEach(function(tx) {
+    writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION, tx.id, tx));
+  });
+  for (let i = 0; i < writes.length; i += FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE) {
+    firestoreCommit_(writes.slice(i, i + FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE));
+  }
+  return {lineDocumentsWritten:projection.lines.length, transactionDocumentsWritten:projection.transactions.length};
 }
 
 // Upsert only changed documents. Used after sheet-side actions and before Explore reads.
