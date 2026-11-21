@@ -241,6 +241,52 @@ function firestoreListDocuments_(collectionPath) {
   return out;
 }
 
+// Query only documents whose transactionId is in the affected set.
+// Firestore IN filters accept up to 30 values; chunks keep requests bounded.
+function firestoreQueryByTransactionIds_(collectionPath, transactionIds) {
+  const ids = (transactionIds || []).filter(String);
+  if (!ids.length) return [];
+  const parts = collectionPath.split('/');
+  const collectionId = parts.pop();
+  const parentPath = parts.join('/');
+  const parent = 'projects/' + FIRESTORE_INDEX_CONFIG.PROJECT_ID + '/databases/' +
+    FIRESTORE_INDEX_CONFIG.DATABASE_ID + '/documents/' + parentPath;
+  const url = 'https://firestore.googleapis.com/v1/' + parent + ':runQuery';
+  const out = [];
+  for (let i = 0; i < ids.length; i += 30) {
+    const chunk = ids.slice(i, i + 30);
+    const payload = {
+      structuredQuery: {
+        from: [{collectionId: collectionId}],
+        where: {
+          fieldFilter: {
+            field: {fieldPath: 'transactionId'},
+            op: 'IN',
+            value: {arrayValue: {values: chunk.map(function(id){return {stringValue:id};})}}
+          }
+        }
+      }
+    };
+    const response = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()},
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    const status = response.getResponseCode();
+    if (status < 200 || status >= 300) {
+      throw new Error('Firestore targeted query failed (' + status + '): ' + response.getContentText().slice(0, 1200));
+    }
+    const results = JSON.parse(response.getContentText() || '[]');
+    results.forEach(function(item) {
+      const doc = item && item.document;
+      if (doc) out.push({id: doc.name.split('/').pop(), data: firestoreDecodeFields_(doc.fields || {})});
+    });
+  }
+  return out;
+}
+
 function firestoreDecodeFields_(fields) {
   const out = {};
   Object.keys(fields || {}).forEach(function(k){ out[k] = firestoreDecodeValue_(fields[k]); });
@@ -382,9 +428,10 @@ function firestoreSyncAffectedP0661_(rows) {
     txIds[txId] = 1;
   });
 
-  const existingLines = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION);
-  const lineMap = Object.create(null);
-  existingLines.forEach(function(x){ lineMap[x.id]=x.data; });
+  const wantedTxIds = Object.keys(txIds);
+  const existingLines = firestoreQueryByTransactionIds_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION, wantedTxIds);
+  const oldLineMap = Object.create(null), lineMap = Object.create(null);
+  existingLines.forEach(function(x){ oldLineMap[x.id]=x.data; lineMap[x.id]=x.data; });
   Object.keys(affected).forEach(function(id){ lineMap[id]=affected[id]; });
 
   // Rebuild only transactions touched by the changed lines. Existing line docs
@@ -413,11 +460,11 @@ function firestoreSyncAffectedP0661_(rows) {
     tx.totalPreNetValue=firestoreRound_(tx.totalPreNetValue,2);
   });
 
-  const oldTx = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION);
+  const oldTx = firestoreQueryByTransactionIds_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION, wantedTxIds);
   const oldTxMap=Object.create(null); oldTx.forEach(function(x){oldTxMap[x.id]=x.data;});
   const writes=[]; let lineChanges=0, txChanges=0;
   Object.keys(affected).forEach(function(id){
-    const next=affected[id], old=lineMap[id];
+    const next=affected[id], old=oldLineMap[id];
     if(!old || firestoreStableJson_(old)!==firestoreStableJson_(next)){ writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION,id,next)); lineChanges++; }
   });
   Object.keys(txAgg).forEach(function(id){
