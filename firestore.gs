@@ -412,7 +412,9 @@ function firestoreSyncAffectedP0661_(rows) {
     const txId = firestoreTxIdForRow_(r);
     const txKey = fkey_(r);
     const state = follow[flinekey_(r)] || follow[txKey+'|'+s_(r[I.CODE])] || follow[txKey] || {};
-    const status = s_(r[I.ST]).toLowerCase()==='complete' ? 'complete' : 'incomplete';
+    // Follow Up is the authoritative source for status after a status toggle.
+    // The in-memory branch snapshot may predate the just-saved status change.
+    const status = s_(state.status || r[I.ST]).toLowerCase()==='complete' ? 'complete' : 'incomplete';
     const actionIndex = Number(state.a)||0;
     const action = actionIndex>0 && actionIndex<=CONFIG.ACTIONS.length ? CONFIG.ACTIONS[actionIndex-1] : '';
     affected[lineId] = {
