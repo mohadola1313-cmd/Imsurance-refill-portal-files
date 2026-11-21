@@ -447,13 +447,16 @@ function firestoreSyncAffectedP0661_(rows) {
       id:txId, branchId:FIRESTORE_INDEX_CONFIG.BRANCH, transactionId:txId,
       loyaltyPhone:s_(line.loyaltyPhone), loyaltyName:s_(line.loyaltyName), trxDate:s_(line.trxDate), trxTime:s_(line.trxTime),
       receiptNumbers:[], membershipIds:[], itemCount:0, totalQuantity:0, totalPreNetValue:0,
-      completeCount:0, incompleteCount:0, status:'incomplete', schemaVersion:FIRESTORE_INDEX_CONFIG.SCHEMA_VERSION, updatedAt:now
+      completeCount:0, incompleteCount:0, status:'incomplete', action:'', notes:'', schemaVersion:FIRESTORE_INDEX_CONFIG.SCHEMA_VERSION, updatedAt:now
     };
     const receipt=s_(line.receiptNumber), mid=s_(line.membershipId);
     if(receipt && tx.receiptNumbers.indexOf(receipt)<0) tx.receiptNumbers.push(receipt);
     if(mid && tx.membershipIds.indexOf(mid)<0) tx.membershipIds.push(mid);
     tx.itemCount++; tx.totalQuantity += Number(line.quantity)||0; tx.totalPreNetValue += Number(line.preNetValue)||0;
     if(s_(line.status)==='complete') tx.completeCount++; else tx.incompleteCount++;
+    // Keep transaction-level fields consistent with the full projection.
+    if(!tx.action && s_(line.action)) tx.action=s_(line.action);
+    if(!tx.notes && s_(line.notes)) tx.notes=s_(line.notes);
   });
   Object.keys(txAgg).forEach(function(id){
     const tx=txAgg[id];
@@ -473,7 +476,9 @@ function firestoreSyncAffectedP0661_(rows) {
     const next=txAgg[id], old=oldTxMap[id];
     if(!old || firestoreStableJson_(old)!==firestoreStableJson_(next)){ writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION,id,next)); txChanges++; }
   });
-  if(writes.length) firestoreCommit_(writes);
+  for(let i=0;i<writes.length;i+=FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE) {
+    firestoreCommit_(writes.slice(i,i+FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE));
+  }
   return {lineDocumentsChanged:lineChanges, transactionDocumentsChanged:txChanges};
 }
 
