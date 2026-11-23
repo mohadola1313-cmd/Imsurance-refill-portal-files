@@ -527,6 +527,7 @@ function writeFollowChanges_(sh, vals, oldCount, changedIndexes) {
   let start = indexes[0], previous = indexes[0], block = [vals[indexes[0]]];
   function flush() {
     const rowNo = start + 2;
+    block.forEach(function(r){while(r.length<FOLLOW_COLS)r.push('');});
     sh.getRange(rowNo, 1, block.length, FOLLOW_COLS).setNumberFormat('@').setValues(block);
   }
   for (let i = 1; i < indexes.length; i++) {
@@ -569,7 +570,7 @@ function upsertFollowStatesBatch_(updates) {
     if (ix === undefined && blankMid[base] !== undefined) ix=blankMid[base];
     if (ix === undefined) {
       ix=vals.length;
-      vals.push([b,phone,due,tdate,ttime,'',mid,'','','','', 'incomplete','', '', '',code]);
+      vals.push([b,phone,due,tdate,ttime,'',mid,'','','','', 'incomplete','', '', '',code,'','incomplete']);
       exact[full]=ix;
       if (!mid) blankMid[base]=ix;
     } else if (mid && !s_(vals[ix][6])) {
@@ -581,10 +582,10 @@ function upsertFollowStatesBatch_(updates) {
     }
     vals[ix][2]=due;
     Object.keys(patch).forEach(function(k) {
-      const col={status:11,su:12,mod:13,md:14}[k];
+      const col={status:16,su:12,mod:13,md:14}[k];
       if (col !== undefined) vals[ix][col]=patch[k];
     });
-    if ('status' in patch) vals[ix][12]=now;
+    if ('status' in patch) { vals[ix][12]=now; vals[ix][17]=vals[ix][16] || vals[ix][11] || 'incomplete'; }
     if ('mod' in patch) vals[ix][14]=now;
     changed[ix]=true;
   });
@@ -657,11 +658,12 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
           throw new Error('A loaded status record has changed. Explore again.');
         }
         row[2] = due;
-        row[11] = status;
+        row[16] = status;
+        row[17] = status || row[11] || 'incomplete';
         row[12] = stamp;
       } else {
         rowNo = nextRow++;
-        row = [b, phoneKey, due, date, time, '', mid, '', '', '', '', status, stamp, '', '', code];
+        row = [b, phoneKey, due, date, time, '', mid, '', '', '', '', 'incomplete', stamp, '', '', code, status, status];
       }
       writes.push({rowNo:rowNo,row:row,date:date,time:time,code:code,mid:mid});
       queueKeys.push(phoneKey + '|' + date + '|' + time);
@@ -670,6 +672,7 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
     let start = -1, block = [], previous = -2;
     function flush() {
       if (!block.length) return;
+      block.forEach(function(r){while(r.length<FOLLOW_COLS)r.push('');});
       sh.getRange(start,1,block.length,FOLLOW_COLS).setNumberFormat('@').setValues(block);
       block = [];
     }
@@ -892,7 +895,7 @@ function syncFollowStatuses_(b, rows) {
     const status = purchaseStatus_(rows, s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]));
     r[11] = status; r[12] = now; changed = true;
   });
-  if (changed) sh.getRange(2, 1, vals.length, FOLLOW_COLS).setValues(vals);
+  if (changed) { vals.forEach(function(r){while(r.length<FOLLOW_COLS)r.push('');}); sh.getRange(2, 1, vals.length, FOLLOW_COLS).setValues(vals); }
   return changed;
 }
 
@@ -943,7 +946,8 @@ function saveFollow(token, branch, phone, due, actionIdx, notes, snapshotTransac
       const key = phone + '|' + p.date + '|' + p.time;
       const ix = at[key] ? at[key] - 2 : -1;
       const oldRow = ix >= 0 ? vals[ix] : [];
-      const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), text, notes, stamp, by, (oldRow[11] || status), (oldRow[12] || stamp), (oldRow[13] || ''), (oldRow[14] || ''), ''];
+      const autoStatus=oldRow[11] || status, modifiedStatus=oldRow[16] || '';
+      const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), text, notes, stamp, by, autoStatus, (oldRow[12] || stamp), (oldRow[13] || ''), (oldRow[14] || ''), '', modifiedStatus, modifiedStatus || autoStatus || 'incomplete'];
       if (ix >= 0) {
         vals[ix] = row;
         changedIndexes[ix] = true;
@@ -1022,7 +1026,7 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
         rowNo = nextRow++;
       }
       const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), action, notes, stamp, by,
-        p.status, p.statusUpdated || stamp, p.modifiedDue, p.modifiedDate, ''];
+        '', p.statusUpdated || stamp, p.modifiedDue, p.modifiedDate, '', '', p.status || 'incomplete'];
       writes.push({rowNo:rowNo, row:row});
       queueKeys.push(phone + '|' + p.date + '|' + p.time);
     });
@@ -1037,6 +1041,7 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
     let blockStart = -1, block = [], previous = -2;
     function flushBlock() {
       if (!block.length) return;
+      block.forEach(function(r){while(r.length<FOLLOW_COLS)r.push('');});
       sh.getRange(blockStart, 1, block.length, FOLLOW_COLS).setNumberFormat('@').setValues(block);
       block = [];
     }
@@ -1065,7 +1070,7 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
   }
 }
 
-const FOLLOW_COLS = 16;
+const FOLLOW_COLS = 18;
 
 // If a later purchase exists for the same Membership ID + Item Code, every older
 // purchase line for that pair is permanently marked Complete. Other invoice items are untouched.
@@ -1098,10 +1103,11 @@ function applyAutomaticRefillCompletion_(b, rows) {
     if(ix!==undefined){
       let rowChanged=false;
       if(s_(vals[ix][11])!=='complete'){ vals[ix][11]='complete'; vals[ix][12]=now; rowChanged=true; }
+      vals[ix][17]=s_(vals[ix][16]) || s_(vals[ix][11]) || 'incomplete';
       if(s_(vals[ix][2])!==eff_(r)){ vals[ix][2]=eff_(r); rowChanged=true; }
       if(rowChanged){ changed=true; changedIndexes[ix]=true; changedRows.push(r); }
     } else {
-      const newRow=[b,s_(r[I.PHONE]),eff_(r),date,time,s_(r[I.NAME]),mid,'','','','', 'complete',now,'','',code];
+      const newRow=[b,s_(r[I.PHONE]),eff_(r),date,time,s_(r[I.NAME]),mid,'','','','', 'complete',now,'','',code,'','complete'];
       index[key]=vals.length; vals.push(newRow); changed=true;
       changedIndexes[vals.length-1]=true;
       changedRows.push(r);
@@ -1121,13 +1127,13 @@ function followMap_(b) {
   rows.forEach(function(r,i){
     if(s_(r[0])!==b || s_(r[15])) return;
     const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]);
-    base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
+    base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[17])||s_(r[16])||s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
   });
   Object.keys(base).forEach(function(k){m[k]=base[k];});
   rows.forEach(function(r,i){
     if(s_(r[0])!==b || !s_(r[15])) return;
     const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]), parent=base[k]||{};
-    const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
+    const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[17])||s_(r[16])||s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
     const lineEntry=Object.assign({},parent,entry,{a:entry.a||parent.a||0,n:entry.n||parent.n||'',u:entry.u||parent.u||''});
     m[k+'|'+s_(r[6])+'|'+s_(r[15])]=lineEntry;
     if(!s_(r[6])) m[k+'|'+s_(r[15])]=lineEntry;
@@ -1140,12 +1146,18 @@ function followSheet_() {
   let sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET);
   const isNew=!sh;
   if(!sh) sh=ss.insertSheet(CONFIG.FOLLOW_SHEET);
-  const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Status','Status Updated','Modified Due Date','Modified Date','Item Code'];
+  const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Auto Status','Status Updated','Modified Due Date','Modified Date','Item Code','Modified Status','Effective Status'];
   if(sh.getLastRow()===0){
     sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
   } else {
-    const old=sh.getRange(1,1,1,Math.max(13,sh.getLastColumn())).getValues()[0].map(String);
+    const old=sh.getRange(1,1,1,Math.max(16,sh.getLastColumn())).getValues()[0].map(String);
     H.forEach(function(h,i){if(old[i]!==h) sh.getRange(1,i+1).setValue(h);});
+    const dataLast=sh.getLastRow();
+    if(dataLast>1){
+      const state=sh.getRange(2,1,dataLast-1,18).getValues(); let changed=false;
+      state.forEach(function(r){ if(!s_(r[17])){r[17]=s_(r[16])||s_(r[11])||'incomplete';changed=true;} });
+      if(changed) sh.getRange(2,1,state.length,18).setValues(state);
+    }
   }
   // Text formatting is initialization work, not part of every Save Notes request.
   if(isNew) sh.getRange(1,1,sh.getMaxRows(),H.length).setNumberFormat('@');
