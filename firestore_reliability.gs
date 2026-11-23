@@ -227,7 +227,8 @@ function firestoreAutomaticAffectedTransactionKeysP0661_(rows) {
   });
   (rows||[]).forEach(function(r) {
     const mid=s_(r[I.MID]), code=s_(r[I.CODE]), stamp=s_(r[I.DATE])+'T'+s_(r[I.TIME]);
-    if (mid && code && latest[mid+'|'+code] && stamp<latest[mid+'|'+code]) affected[fkey_(r)]=true;
+    if (mid && code && latest[mid+'|'+code] && stamp<latest[mid+'|'+code] &&
+        s_(r[I.ST]).toLowerCase() !== 'complete') affected[fkey_(r)]=true;
   });
   return Object.keys(affected);
 }
@@ -361,4 +362,38 @@ function firestoreReadExploreSnapshotP0661_(month) {
     cache.put(manifestKey,JSON.stringify({schema:FIRESTORE_RELIABILITY_P0661.SNAPSHOT_SCHEMA,revision:revision,month:month,count:chunks.length,builtAt:new Date().toISOString()}),FIRESTORE_RELIABILITY_P0661.CACHE_TTL_SECONDS);
   }
   return snapshot;
+}
+
+
+/** Pure, read-only checks for deterministic helpers. Does not access Sheets or Firestore. */
+function firestoreReliabilitySelfTestP0661_() {
+  const assert = function(ok,message) { if(!ok) throw new Error('Self-test failed: '+message); };
+  const bounds=firestoreExploreMonthBoundsP0661_('2024-02');
+  assert(bounds && bounds.start==='2024-02-01' && bounds.end==='2024-03-01','leap-year month bounds');
+  assert(firestoreExploreMonthBoundsP0661_('2024-13')===null,'invalid month rejected');
+  assert(firestoreSnapshotCacheKeyP0661_('2026-11',3,'manifest') !==
+    firestoreSnapshotCacheKeyP0661_('2026-11',4,'manifest'),'revision changes cache key');
+  assert(firestoreSnapshotCacheKeyP0661_('2026-11',3,'manifest') !==
+    firestoreSnapshotCacheKeyP0661_('2026-12',3,'manifest'),'month changes cache key');
+
+  const row=function(phone,date,time,mid,code,status) {
+    const r=[];r[I.PHONE]=phone;r[I.DATE]=date;r[I.TIME]=time;r[I.MID]=mid;r[I.CODE]=code;r[I.ST]=status||'incomplete';return r;
+  };
+  const before=[row('0550000000','2026-11-01','10:00:00','M1','A1')];
+  const after=[row('0550000000','2026-11-01','10:00:00','M1','A1','complete')];
+  const changed=firestoreChangedTransactionKeysP0661_(before,after);
+  assert(changed.length===1 && changed[0]==='0550000000|2026-11-01|10:00:00','changed line maps to one transaction');
+  const autoRows=[
+    row('0550000000','2026-10-01','09:00:00','M1','A1','incomplete'),
+    row('0550000000','2026-11-01','09:00:00','M1','A1','incomplete'),
+    row('0550000000','2026-09-01','09:00:00','M1','B2','incomplete')
+  ];
+  const auto=firestoreAutomaticAffectedTransactionKeysP0661_(autoRows);
+  assert(auto.length===1 && auto[0]==='0550000000|2026-10-01|09:00:00','only older incomplete matching item is queued');
+  const alreadyDone=firestoreAutomaticAffectedTransactionKeysP0661_([
+    row('0550000000','2026-10-01','09:00:00','M1','A1','complete'),
+    row('0550000000','2026-11-01','09:00:00','M1','A1','incomplete')
+  ]);
+  assert(alreadyDone.length===0,'already-complete history is not re-queued');
+  return {passed:8,readOnly:true};
 }
