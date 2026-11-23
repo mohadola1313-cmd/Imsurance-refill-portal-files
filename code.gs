@@ -943,6 +943,11 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
       queueKeys.push(phone + '|' + p.date + '|' + p.time);
     });
 
+    // Persist the Firestore sync intent before changing canonical Follow Up rows.
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(queueKeys, 'follow-up');
+    }
+
     // Write only the affected Follow Up records. New transactions are appended; existing rows are overwritten.
     writes.sort(function(a,b){return a.rowNo-b.rowNo;});
     let blockStart = -1, block = [], previous = -2;
@@ -961,10 +966,16 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
     });
     flushBlock();
 
-    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
-      firestoreQueueEnqueueTransactionsP0661_(queueKeys, 'follow-up');
-    }
-    return writes.length;
+    return {
+      saved: writes.map(function(w) {
+        const r = w.row;
+        return {
+          date: r[3], time: r[4], followRow: w.rowNo,
+          status: r[11], statusUpdated: r[12],
+          modifiedDue: r[13], modifiedDate: r[14]
+        };
+      })
+    };
   } finally {
     lock.releaseLock();
   }
