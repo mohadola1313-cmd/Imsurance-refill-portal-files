@@ -23,6 +23,8 @@ const FIRESTORE_INDEX_CONFIG = Object.freeze({
 /** One-time initial index build. Run manually from the Apps Script editor. */
 function firestoreInitialSyncP0661() {
   firestoreAssertTestTarget_();
+  // Disable Firestore reads during a rebuild; Explore will safely fall back to Sheets.
+  PropertiesService.getScriptProperties().setProperty('FIRESTORE_INDEX_P0661_READY', '0');
   const branch = FIRESTORE_INDEX_CONFIG.BRANCH;
   const rows = readBranch_(branch); // reads canonical Sheets + current Follow Up state
   if (!rows.length) throw new Error('P0661 has no saved rows in the test spreadsheet.');
@@ -146,7 +148,10 @@ function firestoreInitialSyncP0661() {
     },
     note: 'Google Sheets remains canonical. Firestore documents are deterministic upserts.'
   };
-  PropertiesService.getScriptProperties().setProperty('FIRESTORE_INDEX_P0661_READY', '1');
+  const indexProps = PropertiesService.getScriptProperties();
+  indexProps.setProperty('FIRESTORE_SNAPSHOT_REV_P0661',
+    String((Number(indexProps.getProperty('FIRESTORE_SNAPSHOT_REV_P0661'))||0)+1));
+  indexProps.setProperty('FIRESTORE_INDEX_P0661_READY', '1');
   Logger.log(JSON.stringify(result));
   return result;
 }
@@ -241,6 +246,52 @@ function firestoreListDocuments_(collectionPath) {
   return out;
 }
 
+// Query only documents whose transactionId is in the affected set.
+// Firestore IN filters accept up to 30 values; chunks keep requests bounded.
+function firestoreQueryByTransactionIds_(collectionPath, transactionIds) {
+  const ids = (transactionIds || []).filter(String);
+  if (!ids.length) return [];
+  const parts = collectionPath.split('/');
+  const collectionId = parts.pop();
+  const parentPath = parts.join('/');
+  const parent = 'projects/' + FIRESTORE_INDEX_CONFIG.PROJECT_ID + '/databases/' +
+    FIRESTORE_INDEX_CONFIG.DATABASE_ID + '/documents/' + parentPath;
+  const url = 'https://firestore.googleapis.com/v1/' + parent + ':runQuery';
+  const out = [];
+  for (let i = 0; i < ids.length; i += 30) {
+    const chunk = ids.slice(i, i + 30);
+    const payload = {
+      structuredQuery: {
+        from: [{collectionId: collectionId}],
+        where: {
+          fieldFilter: {
+            field: {fieldPath: 'transactionId'},
+            op: 'IN',
+            value: {arrayValue: {values: chunk.map(function(id){return {stringValue:id};})}}
+          }
+        }
+      }
+    };
+    const response = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()},
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    const status = response.getResponseCode();
+    if (status < 200 || status >= 300) {
+      throw new Error('Firestore targeted query failed (' + status + '): ' + response.getContentText().slice(0, 1200));
+    }
+    const results = JSON.parse(response.getContentText() || '[]');
+    results.forEach(function(item) {
+      const doc = item && item.document;
+      if (doc) out.push({id: doc.name.split('/').pop(), data: firestoreDecodeFields_(doc.fields || {})});
+    });
+  }
+  return out;
+}
+
 function firestoreDecodeFields_(fields) {
   const out = {};
   Object.keys(fields || {}).forEach(function(k){ out[k] = firestoreDecodeValue_(fields[k]); });
@@ -263,12 +314,12 @@ function firestoreLineIdForRow_(r) { return firestoreStableId_('l', flinekey_(r)
 function firestoreTxIdForRow_(r) { return firestoreStableId_('t', fkey_(r)); }
 
 // Builds canonical Firestore documents from the current Sheets state. No writes occur here.
-function firestoreBuildCurrentProjection_(branch, rows) {
-  const follow = followMap_(branch), txs = Object.create(null), lines = [], now = new Date().toISOString();
+function firestoreBuildCurrentProjection_(branch, rows, followOverride) {
+  const follow = followOverride || followMap_(branch), txs = Object.create(null), lines = [], now = new Date().toISOString();
   rows.forEach(function(r){
     const txKey=fkey_(r), txId=firestoreTxIdForRow_(r), lineId=firestoreLineIdForRow_(r);
     const state=follow[flinekey_(r)] || follow[txKey+'|'+s_(r[I.CODE])] || follow[txKey] || {};
-    const status=s_(r[I.ST]).toLowerCase()==='complete'?'complete':'incomplete';
+    const status=s_(state.status || r[I.ST]).toLowerCase()==='complete'?'complete':'incomplete';
     const actionIndex=Number(state.a)||0;
     const action=actionIndex>0&&actionIndex<=CONFIG.ACTIONS.length?CONFIG.ACTIONS[actionIndex-1]:'';
     const qty=Number(r[I.QTY])||0, net=Number(r[I.NET])||0;
@@ -288,6 +339,27 @@ function firestoreBuildCurrentProjection_(branch, rows) {
 
 function firestoreStableJson_(o) {
   const x={};Object.keys(o||{}).sort().forEach(function(k){if(k!=='updatedAt')x[k]=o[k];});return JSON.stringify(x);
+}
+
+// Hot-path sync for user actions: callers pass complete transaction rows from one Sheets snapshot.
+// This avoids two Firestore read round-trips (purchaseLines + transactions) before the commit.
+// It is safe because each affected transaction is rebuilt from all its canonical sheet item lines.
+function firestoreSyncTransactionsP0661_(rows) {
+  firestoreAssertTestTarget_();
+  rows = rows || [];
+  if (!rows.length) return {lineDocumentsWritten:0, transactionDocumentsWritten:0};
+  const projection = firestoreBuildCurrentProjection_(FIRESTORE_INDEX_CONFIG.BRANCH, rows);
+  const writes = [];
+  projection.lines.forEach(function(line) {
+    writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION, line.id, line));
+  });
+  projection.transactions.forEach(function(tx) {
+    writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION, tx.id, tx));
+  });
+  for (let i = 0; i < writes.length; i += FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE) {
+    firestoreCommit_(writes.slice(i, i + FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE));
+  }
+  return {lineDocumentsWritten:projection.lines.length, transactionDocumentsWritten:projection.transactions.length};
 }
 
 // Upsert only changed documents. Used after sheet-side actions and before Explore reads.
@@ -324,7 +396,7 @@ function firestoreAssertIndexReadTarget_() {
 
 // Single-read Explore snapshot: derive both the portal row array and follow-up map
 // from the same Firestore response instead of listing purchaseLines twice.
-function firestoreReadExploreSnapshotP0661_() {
+function firestoreReadExploreSnapshotLegacyP0661_() {
   firestoreAssertIndexReadTarget_();
   const docs = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION);
   const rows = [], follow = Object.create(null);
@@ -345,8 +417,7 @@ function firestoreReadExploreSnapshotP0661_() {
 }
 
 // Kept as compatibility wrappers for any other existing callers.
-function firestoreReadBranchRowsP0661_() { return firestoreReadExploreSnapshotP0661_().rows; }
-function firestoreReadFollowMapP0661_() { return firestoreReadExploreSnapshotP0661_().follow; }
+function firestoreReadBranchRowsP0661_() { return firestoreReadExploreSnapshotLegacyP0661_().rows; }
 
 function firestoreSyncAffectedP0661_(rows) {
   firestoreAssertTestTarget_();
@@ -366,7 +437,9 @@ function firestoreSyncAffectedP0661_(rows) {
     const txId = firestoreTxIdForRow_(r);
     const txKey = fkey_(r);
     const state = follow[flinekey_(r)] || follow[txKey+'|'+s_(r[I.CODE])] || follow[txKey] || {};
-    const status = s_(r[I.ST]).toLowerCase()==='complete' ? 'complete' : 'incomplete';
+    // Follow Up is the authoritative source for status after a status toggle.
+    // The in-memory branch snapshot may predate the just-saved status change.
+    const status = s_(state.status || r[I.ST]).toLowerCase()==='complete' ? 'complete' : 'incomplete';
     const actionIndex = Number(state.a)||0;
     const action = actionIndex>0 && actionIndex<=CONFIG.ACTIONS.length ? CONFIG.ACTIONS[actionIndex-1] : '';
     affected[lineId] = {
@@ -382,9 +455,10 @@ function firestoreSyncAffectedP0661_(rows) {
     txIds[txId] = 1;
   });
 
-  const existingLines = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION);
-  const lineMap = Object.create(null);
-  existingLines.forEach(function(x){ lineMap[x.id]=x.data; });
+  const wantedTxIds = Object.keys(txIds);
+  const existingLines = firestoreQueryByTransactionIds_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION, wantedTxIds);
+  const oldLineMap = Object.create(null), lineMap = Object.create(null);
+  existingLines.forEach(function(x){ oldLineMap[x.id]=x.data; lineMap[x.id]=x.data; });
   Object.keys(affected).forEach(function(id){ lineMap[id]=affected[id]; });
 
   // Rebuild only transactions touched by the changed lines. Existing line docs
@@ -398,13 +472,16 @@ function firestoreSyncAffectedP0661_(rows) {
       id:txId, branchId:FIRESTORE_INDEX_CONFIG.BRANCH, transactionId:txId,
       loyaltyPhone:s_(line.loyaltyPhone), loyaltyName:s_(line.loyaltyName), trxDate:s_(line.trxDate), trxTime:s_(line.trxTime),
       receiptNumbers:[], membershipIds:[], itemCount:0, totalQuantity:0, totalPreNetValue:0,
-      completeCount:0, incompleteCount:0, status:'incomplete', schemaVersion:FIRESTORE_INDEX_CONFIG.SCHEMA_VERSION, updatedAt:now
+      completeCount:0, incompleteCount:0, status:'incomplete', action:'', notes:'', schemaVersion:FIRESTORE_INDEX_CONFIG.SCHEMA_VERSION, updatedAt:now
     };
     const receipt=s_(line.receiptNumber), mid=s_(line.membershipId);
     if(receipt && tx.receiptNumbers.indexOf(receipt)<0) tx.receiptNumbers.push(receipt);
     if(mid && tx.membershipIds.indexOf(mid)<0) tx.membershipIds.push(mid);
     tx.itemCount++; tx.totalQuantity += Number(line.quantity)||0; tx.totalPreNetValue += Number(line.preNetValue)||0;
     if(s_(line.status)==='complete') tx.completeCount++; else tx.incompleteCount++;
+    // Keep transaction-level fields consistent with the full projection.
+    if(!tx.action && s_(line.action)) tx.action=s_(line.action);
+    if(!tx.notes && s_(line.notes)) tx.notes=s_(line.notes);
   });
   Object.keys(txAgg).forEach(function(id){
     const tx=txAgg[id];
@@ -413,18 +490,20 @@ function firestoreSyncAffectedP0661_(rows) {
     tx.totalPreNetValue=firestoreRound_(tx.totalPreNetValue,2);
   });
 
-  const oldTx = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION);
+  const oldTx = firestoreQueryByTransactionIds_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION, wantedTxIds);
   const oldTxMap=Object.create(null); oldTx.forEach(function(x){oldTxMap[x.id]=x.data;});
   const writes=[]; let lineChanges=0, txChanges=0;
   Object.keys(affected).forEach(function(id){
-    const next=affected[id], old=lineMap[id];
+    const next=affected[id], old=oldLineMap[id];
     if(!old || firestoreStableJson_(old)!==firestoreStableJson_(next)){ writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION,id,next)); lineChanges++; }
   });
   Object.keys(txAgg).forEach(function(id){
     const next=txAgg[id], old=oldTxMap[id];
     if(!old || firestoreStableJson_(old)!==firestoreStableJson_(next)){ writes.push(firestoreWrite_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION,id,next)); txChanges++; }
   });
-  if(writes.length) firestoreCommit_(writes);
+  for(let i=0;i<writes.length;i+=FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE) {
+    firestoreCommit_(writes.slice(i,i+FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE));
+  }
   return {lineDocumentsChanged:lineChanges, transactionDocumentsChanged:txChanges};
 }
 

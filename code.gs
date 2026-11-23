@@ -407,10 +407,16 @@ function saveUpload(token, branch, files, keepMilk) {
 
     // 5. per purchase: average qt, net value sum, due date (milk rule or average qt rule)
     const finalRows = calc_(merged, done, mods, milk);
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      const changedKeys = firestoreChangedTransactionKeysP0661_(saved, finalRows)
+        .concat(firestoreAutomaticAffectedTransactionKeysP0661_(finalRows));
+      firestoreQueueEnqueueTransactionsP0661_(changedKeys, 'upload');
+    }
     writeBranch_(b, finalRows);
     applyAutomaticRefillCompletion_(b, finalRows);
-    if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_(finalRows);
-
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
     return { branch: b, previousLast: previousLast, newLast: lastDate_(finalRows), rowsSaved: finalRows.length,
              removed: removed, removedCodes: removedCodes, duplicates: duplicates, milkKept: milkKept };
   } finally {
@@ -434,8 +440,13 @@ function deletePeriod(token, branch, from, to, dryRun) {
     if (!gone.length) throw new Error('No saved rows fall in this period.');
     const keep = rows.filter(function (r) { return !inside(r); }).map(base_);
     const finalRows = calc_(keep, doneMap_(rows), modMap_(rows), milkCodes_());
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(gone.map(fkey_), 'delete');
+    }
     writeBranch_(b, finalRows);
-    if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_(finalRows);
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
     return { deleted: gone.length, purchases: nPurchases, remaining: finalRows.length, lastInvoice: lastDate_(finalRows) };
   } finally {
     lock.releaseLock();
@@ -446,6 +457,7 @@ function deletePeriod(token, branch, from, to, dryRun) {
 
 function explore(token, branch, date, min, max, ym) {
   const b = branchOf_(token, branch);
+  const mon = String(ym || date || '').slice(0, 7);
   let exploreRows, follow;
 
   // FAST PATH: for the approved P0661 test branch, Firestore is the read model.
@@ -457,9 +469,15 @@ function explore(token, branch, date, min, max, ym) {
     PropertiesService.getScriptProperties().getProperty('FIRESTORE_INDEX_P0661_READY') === '1';
 
   if (firestoreReady) {
-    const snapshot = firestoreReadExploreSnapshotP0661_();
-    exploreRows = snapshot.rows;
-    follow = snapshot.follow;
+    const snapshot = firestoreReadExploreSnapshotP0661_(mon);
+    if (snapshot) {
+      exploreRows = snapshot.rows;
+      follow = snapshot.follow;
+    } else {
+      const rows = readBranch_(b);
+      exploreRows = rows;
+      follow = followMap_(b);
+    }
   } else {
     // Compatibility path for other branches, or P0661 before its first index build.
     const rows = readBranch_(b);
@@ -472,7 +490,6 @@ function explore(token, branch, date, min, max, ym) {
 
   const lo = (min === '' || min == null) ? -Infinity : Number(min);
   const hi = (max === '' || max == null) ? Infinity : Number(max);
-  const mon = String(ym || date || '').slice(0, 7);
   const recs = date ? follow : {};
   const perDay = {}, list = [];
   exploreRows.forEach(function (r) {
@@ -495,56 +512,146 @@ function explore(token, branch, date, min, max, ym) {
 // code '*' marks every purchase line of the customer due on that date (conclusion page);
 // otherwise only the line with that item code, purchase date and time (details page).
 // `due` is the due date as shown (the modified one when there is one).
+// Write only changed Follow Up rows, coalescing adjacent rows into a single Sheets write.
+function writeFollowChanges_(sh, vals, oldCount, changedIndexes) {
+  const indexes = Object.keys(changedIndexes || {}).map(Number).sort(function(a,b){return a-b;});
+  if (!indexes.length) return;
+  let start = indexes[0], previous = indexes[0], block = [vals[indexes[0]]];
+  function flush() {
+    const rowNo = start + 2;
+    sh.getRange(rowNo, 1, block.length, FOLLOW_COLS).setNumberFormat('@').setValues(block);
+  }
+  for (let i = 1; i < indexes.length; i++) {
+    const ix = indexes[i];
+    if (ix === previous + 1) {
+      block.push(vals[ix]);
+    } else {
+      flush();
+      start = ix;
+      block = [vals[ix]];
+    }
+    previous = ix;
+  }
+  flush();
+}
+
+// Batch form used by status toggles: one Follow Up read and only changed-row writes.
+function upsertFollowStatesBatch_(updates) {
+  if (!updates || !updates.length) return;
+  const sh = followSheet_(), last = sh.getLastRow();
+  const vals = last > 1 ? sh.getRange(2, 1, last - 1, FOLLOW_COLS).getValues() : [];
+  const oldCount = vals.length, exact = Object.create(null), blankMid = Object.create(null);
+  function keyOf(b, phone, date, time, code, mid) {
+    return [b, phone, date, time, code, mid].map(s_).join('|');
+  }
+  vals.forEach(function(r, i) {
+    const base = [s_(r[0]),s_(r[1]),s_(r[3]),s_(r[4]),s_(r[15])].join('|');
+    const full = base + '|' + s_(r[6]);
+    if (exact[full] === undefined) exact[full] = i;
+    if (!s_(r[6]) && blankMid[base] === undefined) blankMid[base] = i;
+  });
+  const now = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
+  const changed = Object.create(null);
+  updates.forEach(function(u) {
+    const b=u.b, phone=u.phone, due=u.due, tdate=u.tdate, ttime=u.ttime;
+    const code=String(u.code||''), mid=String(u.membershipId||''), patch=u.patch||{};
+    const base=[s_(b),s_(phone),s_(tdate),s_(ttime),s_(code)].join('|');
+    const full=base+'|'+s_(mid);
+    let ix=exact[full];
+    if (ix === undefined && blankMid[base] !== undefined) ix=blankMid[base];
+    if (ix === undefined) {
+      ix=vals.length;
+      vals.push([b,phone,due,tdate,ttime,'',mid,'','','','', 'incomplete','', '', '',code]);
+      exact[full]=ix;
+      if (!mid) blankMid[base]=ix;
+    } else if (mid && !s_(vals[ix][6])) {
+      vals[ix][6]=mid;
+      exact[full]=ix;
+      // This blank-Membership-ID row has now been claimed; do not reuse it
+      // for a different Membership ID later in the same batch.
+      delete blankMid[base];
+    }
+    vals[ix][2]=due;
+    Object.keys(patch).forEach(function(k) {
+      const col={status:11,su:12,mod:13,md:14}[k];
+      if (col !== undefined) vals[ix][col]=patch[k];
+    });
+    if ('status' in patch) vals[ix][12]=now;
+    if ('mod' in patch) vals[ix][14]=now;
+    changed[ix]=true;
+  });
+  writeFollowChanges_(sh, vals, oldCount, changed);
+}
+
 function upsertFollowState_(b, phone, due, tdate, ttime, code, membershipId, patch) {
-  const sh=followSheet_(), last=sh.getLastRow();
-  const vals=last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
-  let ix=-1;
-  for(let i=0;i<vals.length;i++) if(s_(vals[i][0])===b && s_(vals[i][1])===phone && s_(vals[i][3])===tdate && s_(vals[i][4])===ttime && s_(vals[i][15])===String(code||'') && s_(vals[i][6])===String(membershipId||'')){ix=i;break;}
-  if(ix<0) for(let i=0;i<vals.length;i++) if(s_(vals[i][0])===b && s_(vals[i][1])===phone && s_(vals[i][3])===tdate && s_(vals[i][4])===ttime && s_(vals[i][15])===String(code||'') && !s_(vals[i][6])){ix=i;break;}
-  const now=Utilities.formatDate(new Date(),CONFIG.TZ,"yyyy-MM-dd'T'HH:mm:ss");
-  if(ix<0){ vals.push([b,phone,due,tdate,ttime,'',String(membershipId||''),'','','','', 'incomplete','', '', '',String(code||'')]); ix=vals.length-1; }
-  else if(membershipId && !s_(vals[ix][6])) vals[ix][6]=String(membershipId);
-  vals[ix][2]=due;
-  Object.keys(patch||{}).forEach(function(k){ const col={status:11,su:12,mod:13,md:14}[k]; if(col!==undefined) vals[ix][col]=patch[k]; });
-  if(patch && ('status' in patch)) vals[ix][12]=now;
-  if(patch && ('mod' in patch)) vals[ix][14]=now;
-  sh.getRange(2,1,vals.length,FOLLOW_COLS).setNumberFormat('@').setValues(vals);
+  upsertFollowStatesBatch_([{b:b,phone:phone,due:due,tdate:tdate,ttime:ttime,code:code,membershipId:membershipId,patch:patch}]);
 }
 
 function setStatus(token, branch, phone, due, code, tdate, ttime, complete) {
-  const b=branchOf_(token,branch), rows=readBranch_(b);
-  const targets=rows.filter(function(r){return r[I.PHONE]===phone && eff_(r)===due && (code==='*'||(r[I.CODE]===code&&r[I.DATE]===tdate&&r[I.TIME]===ttime));});
-  if(!targets.length) throw new Error('This row was not found. Explore again and retry.');
-  targets.forEach(function(r){ upsertFollowState_(b,phone,due,r[I.DATE],r[I.TIME],r[I.CODE],r[I.MID],{status:complete?'complete':'incomplete'}); });
-  // Preserve the established automatic replacement rule at write time, rather than
-  // depending on the next Explore visit to repair an older purchase line.
-  const auto = applyAutomaticRefillCompletion_(b, rows);
-  if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') {
-    const affected = targets.concat(auto && auto.rows ? auto.rows : []);
-    firestoreSyncAffectedP0661_(affected);
+  const b=branchOf_(token,branch), lock=LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const rows=readBranch_(b);
+    const targets=rows.filter(function(r){return r[I.PHONE]===phone && eff_(r)===due && (code==='*'||(r[I.CODE]===code&&r[I.DATE]===tdate&&r[I.TIME]===ttime));});
+    if(!targets.length) throw new Error('This row was not found. Explore again and retry.');
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      const keys=targets.map(fkey_).concat(firestoreAutomaticAffectedTransactionKeysP0661_(rows));
+      firestoreQueueEnqueueTransactionsP0661_(keys,'status');
+    }
+    upsertFollowStatesBatch_(targets.map(function(r){return {b:b,phone:phone,due:due,tdate:r[I.DATE],ttime:r[I.TIME],code:r[I.CODE],membershipId:r[I.MID],patch:{status:complete?'complete':'incomplete'}};}));
+    // Preserve automatic replacement behavior at write time.
+    applyAutomaticRefillCompletion_(b, rows);
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
+    return targets.length;
+  } finally {
+    lock.releaseLock();
   }
-  return targets.length;
 }
 
 function setModifiedDue(token, branch, phone, code, tdate, ttime, newDate) {
-  const b=branchOf_(token,branch); newDate=String(newDate||'');
+  const b=branchOf_(token,branch), lock=LockService.getScriptLock();
+  newDate=String(newDate||'');
   if(newDate&&!isDate_(newDate)) throw new Error('Choose a valid date.');
-  const rows=readBranch_(b), r=rows.find(function(x){return x[I.PHONE]===phone&&x[I.CODE]===code&&x[I.DATE]===tdate&&x[I.TIME]===ttime;});
-  if(!r) throw new Error('This line was not found. Explore again and retry.');
-  const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE];
-  upsertFollowState_(b,phone,effective,tdate,ttime,code,r[I.MID],{mod:value});
-  if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_([r]);
-  return effective;
+  lock.waitLock(30000);
+  try {
+    const rows=readBranch_(b), r=rows.find(function(x){return x[I.PHONE]===phone&&x[I.CODE]===code&&x[I.DATE]===tdate&&x[I.TIME]===ttime;});
+    if(!r) throw new Error('This line was not found. Explore again and retry.');
+    const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE];
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_([fkey_(r)],'modified-due');
+    }
+    upsertFollowState_(b,phone,effective,tdate,ttime,code,r[I.MID],{mod:value});
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
+    return effective;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function setGroupDue(token, branch, phone, due, newDate) {
-  const b=branchOf_(token,branch); newDate=String(newDate||'');
+  const b=branchOf_(token,branch), lock=LockService.getScriptLock();
+  newDate=String(newDate||'');
   if(newDate&&!isDate_(newDate)) throw new Error('Choose a valid date.');
-  const rows=readBranch_(b).filter(function(r){return r[I.PHONE]===phone&&eff_(r)===due;});
-  if(!rows.length) throw new Error('This customer is no longer due on that date. Explore again.');
-  rows.forEach(function(r){const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE]; upsertFollowState_(b,phone,effective,r[I.DATE],r[I.TIME],r[I.CODE],r[I.MID],{mod:value});});
-  if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_(rows);
-  return rows.length;
+  lock.waitLock(30000);
+  try {
+    const sourceRows=readBranch_(b);
+    const rows=sourceRows.filter(function(r){return r[I.PHONE]===phone&&eff_(r)===due;});
+    if(!rows.length) throw new Error('This customer is no longer due on that date. Explore again.');
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(rows.map(fkey_),'group-modified-due');
+    }
+    rows.forEach(function(r){const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE]; upsertFollowState_(b,phone,effective,r[I.DATE],r[I.TIME],r[I.CODE],r[I.MID],{mod:value});});
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
+    return rows.length;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // view: 'summary' (conclusion page, one row per customer and due date) or 'details' (one row per item)
@@ -708,8 +815,11 @@ function syncFollowStatuses_(b, rows) {
 
 // Saves the action (1-5, or 0 for none) and the notes of a customer for a due date.
 // One row is kept per purchase process of that customer due on that date.
-function saveFollow(token, branch, phone, due, actionIdx, notes) {
+function saveFollow(token, branch, phone, due, actionIdx, notes, snapshotTransactions) {
   const b = branchOf_(token, branch);
+  if (Array.isArray(snapshotTransactions)) {
+    return saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapshotTransactions);
+  }
   const idx = Number(actionIdx) || 0;
   if (idx < 0 || idx > CONFIG.ACTIONS.length) throw new Error('Choose one of the five actions.');
   notes = String(notes == null ? '' : notes).replace(/\r/g, '').slice(0, 1000);
@@ -741,23 +851,131 @@ function saveFollow(token, branch, phone, due, actionIdx, notes) {
     const stamp = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
     const by = sess_(token).id;
     const text = idx ? CONFIG.ACTIONS[idx - 1] : '';
+    const oldCount = vals.length;
+    const changedIndexes = Object.create(null);
+    let nextSheetRow = last + 1;
     keys.forEach(function (k) {
       const p = purch[k];
-      const status = purchaseStatus_(readBranch_(b), phone, due, p.date, p.time);
+      const status = purchaseStatus_(sourceRows, phone, due, p.date, p.time);
       const key = phone + '|' + p.date + '|' + p.time;
-      const oldRow = at[key] ? vals[at[key]-2] : [];
+      const ix = at[key] ? at[key] - 2 : -1;
+      const oldRow = ix >= 0 ? vals[ix] : [];
       const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), text, notes, stamp, by, (oldRow[11] || status), (oldRow[12] || stamp), (oldRow[13] || ''), (oldRow[14] || ''), ''];
-      const at1 = at[key] || (sh.getLastRow() + 1);
-      sh.getRange(at1, 1, 1, FOLLOW_COLS).setNumberFormat('@').setValues([row]);
+      if (ix >= 0) {
+        vals[ix] = row;
+        changedIndexes[ix] = true;
+      } else {
+        vals.push(row);
+        changedIndexes[vals.length - 1] = true;
+        at[key] = nextSheetRow++;
+      }
     });
-    duplicateTransactionRows.sort(function(a,c){return c-a;}).forEach(function(rowNo){sh.deleteRow(rowNo);});
-    if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') {
-      // The original branch snapshot already contains every line affected by
-      // this customer + due date. Reuse it; do not read the whole branch again.
-      const affectedRows = sourceRows.filter(function(r){ return r[I.PHONE] === phone && eff_(r) === due; });
-      firestoreSyncAffectedP0661_(affectedRows);
+    const affectedRows = sourceRows.filter(function(r){
+      return r[I.PHONE] === phone && !!purch[r[I.DATE] + '|' + r[I.TIME]];
+    });
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(affectedRows.map(fkey_),'follow-up');
     }
+    writeFollowChanges_(sh, vals, oldCount, changedIndexes);
+    duplicateTransactionRows.sort(function(a,c){return c-a;}).forEach(function(rowNo){sh.deleteRow(rowNo);});
+    // Firestore is a read model: enqueue above, then let the retry worker reconcile
+    // after this save releases its lock. Do not make the user wait for Firestore here.
     return keys.length;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Snapshot-driven Save Notes. The browser sends the transaction rows already loaded by Explore.
+// Detail row metadata appended by detail_(): [18]=Follow Up sheet row, [19]=status,
+// [20]=status updated, [21]=modified due date, [22]=modified date.
+function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapshotTransactions) {
+  const idx = Number(actionIdx) || 0;
+  if (idx < 0 || idx > CONFIG.ACTIONS.length) throw new Error('Choose one of the five actions.');
+  phone = String(phone || '').trim();
+  notes = String(notes == null ? '' : notes).replace(/\\r/g, '').slice(0, 1000);
+  if (!idx && !notes.trim()) throw new Error('Choose an action or write a note.');
+  if (!isDate_(due) || !phone) throw new Error('Choose a valid customer and due date.');
+  if (!snapshotTransactions.length || snapshotTransactions.length > 500) throw new Error('The loaded snapshot is empty or invalid. Explore again.');
+
+  const transactions = Object.create(null);
+  snapshotTransactions.forEach(function(t) {
+    const date = String(t.date || ''), time = String(t.time || ''), rowNo = Number(t.followRow) || 0;
+    if (!isDate_(date) || !/^\\d{2}:\\d{2}:\\d{2}$/.test(time) || !Array.isArray(t.membershipIds)) {
+      throw new Error('The loaded snapshot contains an invalid transaction. Explore again.');
+    }
+    const key = date + '|' + time;
+    if (transactions[key]) throw new Error('The loaded snapshot contains a duplicate transaction. Explore again.');
+    const ids = t.membershipIds.map(function(v){ return String(v || '').trim(); }).filter(Boolean);
+    transactions[key] = {
+      date: date, time: time, name: String(t.name || '').slice(0,200), ids: ids,
+      followRow: rowNo, status: String(t.status || 'incomplete') === 'complete' ? 'complete' : 'incomplete',
+      statusUpdated: String(t.statusUpdated || ''), modifiedDue: String(t.modifiedDue || ''), modifiedDate: String(t.modifiedDate || '')
+    };
+  });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = followSheet_();
+    const last = sh.getLastRow();
+    const stamp = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
+    const by = sess_(token).id;
+    const action = idx ? CONFIG.ACTIONS[idx - 1] : '';
+    const writes = [], queueKeys = [];
+    let nextRow = Math.max(last + 1, 2);
+    Object.keys(transactions).sort().forEach(function(key) {
+      const p = transactions[key];
+      let rowNo = p.followRow;
+      if (rowNo) {
+        if (rowNo < 2 || rowNo > last) throw new Error('The loaded Follow Up record is no longer available. Explore again.');
+        // Validate only the addressed record; do not reload or search the Follow Up sheet.
+        const identity = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getDisplayValues()[0].map(String);
+        if (identity[0] !== b || identity[1] !== phone || identity[3] !== p.date || identity[4] !== p.time || identity[15]) {
+          throw new Error('The loaded Follow Up record has changed. Explore again.');
+        }
+      } else {
+        rowNo = nextRow++;
+      }
+      const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), action, notes, stamp, by,
+        p.status, p.statusUpdated || stamp, p.modifiedDue, p.modifiedDate, ''];
+      writes.push({rowNo:rowNo, row:row});
+      queueKeys.push(phone + '|' + p.date + '|' + p.time);
+    });
+
+    // Persist the Firestore sync intent before changing canonical Follow Up rows.
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(queueKeys, 'follow-up');
+    }
+
+    // Write only the affected Follow Up records. New transactions are appended; existing rows are overwritten.
+    writes.sort(function(a,b){return a.rowNo-b.rowNo;});
+    let blockStart = -1, block = [], previous = -2;
+    function flushBlock() {
+      if (!block.length) return;
+      sh.getRange(blockStart, 1, block.length, FOLLOW_COLS).setNumberFormat('@').setValues(block);
+      block = [];
+    }
+    writes.forEach(function(w) {
+      if (w.rowNo !== previous + 1) {
+        flushBlock();
+        blockStart = w.rowNo;
+      }
+      block.push(w.row);
+      previous = w.rowNo;
+    });
+    flushBlock();
+
+    return {
+      saved: writes.map(function(w) {
+        const r = w.row;
+        return {
+          date: r[3], time: r[4], followRow: w.rowNo,
+          status: r[11], statusUpdated: r[12],
+          modifiedDue: r[13], modifiedDate: r[14]
+        };
+      })
+    };
   } finally {
     lock.releaseLock();
   }
@@ -785,6 +1003,7 @@ function applyAutomaticRefillCompletion_(b, rows) {
   const now=Utilities.formatDate(new Date(),CONFIG.TZ,"yyyy-MM-dd'T'HH:mm:ss");
   let changed=false;
   const changedRows=[];
+  const changedIndexes=Object.create(null), oldCount=vals.length;
   rows.forEach(function(r){
     const mid=s_(r[I.MID]), code=s_(r[I.CODE]), date=s_(r[I.DATE]), time=s_(r[I.TIME]);
     if(!mid || !code || !date || !time) return;
@@ -793,14 +1012,18 @@ function applyAutomaticRefillCompletion_(b, rows) {
     const key=s_(r[I.PHONE])+'|'+date+'|'+time+'|'+mid+'|'+code;
     const ix=index[key];
     if(ix!==undefined){
-      if(s_(vals[ix][11])!=='complete'){ vals[ix][11]='complete'; vals[ix][12]=now; changed=true; changedRows.push(r); }
-      if(s_(vals[ix][2])!==eff_(r)){ vals[ix][2]=eff_(r); changed=true; }
+      let rowChanged=false;
+      if(s_(vals[ix][11])!=='complete'){ vals[ix][11]='complete'; vals[ix][12]=now; rowChanged=true; }
+      if(s_(vals[ix][2])!==eff_(r)){ vals[ix][2]=eff_(r); rowChanged=true; }
+      if(rowChanged){ changed=true; changedIndexes[ix]=true; changedRows.push(r); }
     } else {
       const newRow=[b,s_(r[I.PHONE]),eff_(r),date,time,s_(r[I.NAME]),mid,'','','','', 'complete',now,'','',code];
       index[key]=vals.length; vals.push(newRow); changed=true;
+      changedIndexes[vals.length-1]=true;
+      changedRows.push(r);
     }
   });
-  if(changed) sh.getRange(2,1,vals.length,FOLLOW_COLS).setNumberFormat('@').setValues(vals);
+  if(changed) writeFollowChanges_(sh, vals, oldCount, changedIndexes);
   return {changed:changed, rows:changedRows};
 }
 
@@ -811,16 +1034,16 @@ function followMap_(b) {
   const width=Math.max(13,sh.getLastColumn());
   const rows=sh.getRange(2,1,sh.getLastRow()-1,Math.min(width,FOLLOW_COLS)).getValues();
   const base={};
-  rows.forEach(function(r){
+  rows.forEach(function(r,i){
     if(s_(r[0])!==b || s_(r[15])) return;
     const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]);
-    base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14])};
+    base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
   });
   Object.keys(base).forEach(function(k){m[k]=base[k];});
-  rows.forEach(function(r){
+  rows.forEach(function(r,i){
     if(s_(r[0])!==b || !s_(r[15])) return;
     const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]), parent=base[k]||{};
-    const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14])};
+    const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
     const lineEntry=Object.assign({},parent,entry,{a:entry.a||parent.a||0,n:entry.n||parent.n||'',u:entry.u||parent.u||''});
     m[k+'|'+s_(r[6])+'|'+s_(r[15])]=lineEntry;
     if(!s_(r[6])) m[k+'|'+s_(r[15])]=lineEntry;
@@ -829,14 +1052,21 @@ function followMap_(b) {
 }
 
 function followSheet_() {
-  const ss=cloud_(), sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET)||ss.insertSheet(CONFIG.FOLLOW_SHEET);
+  const ss=cloud_();
+  let sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET);
+  const isNew=!sh;
+  if(!sh) sh=ss.insertSheet(CONFIG.FOLLOW_SHEET);
   const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Status','Status Updated','Modified Due Date','Modified Date','Item Code'];
-  if(sh.getLastRow()===0){sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');}
-  else {
+  if(sh.getLastRow()===0){
+    sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
+  } else {
     const old=sh.getRange(1,1,1,Math.max(13,sh.getLastColumn())).getValues()[0].map(String);
     H.forEach(function(h,i){if(old[i]!==h) sh.getRange(1,i+1).setValue(h);});
   }
-  sh.getRange(1,1,Math.max(1,sh.getLastRow()),H.length).setNumberFormat('@'); sh.setFrozenRows(1); return sh;
+  // Text formatting is initialization work, not part of every Save Notes request.
+  if(isNew) sh.getRange(1,1,sh.getMaxRows(),H.length).setNumberFormat('@');
+  sh.setFrozenRows(1);
+  return sh;
 }
 
 // transaction identity ignores Due Date: changing a due date must not create another transaction record
@@ -912,9 +1142,11 @@ function getMemberHistory(token, branch, membershipId) {
 // purchase date, due date shown, complete?, time, pre-net value, modified?, calculated due date,
 // follow up action, notes, saved at, permanently mirrored status, status updated at
 function detail_(r, recs) {
-  const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || recs[fkey_(r)] || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
+  const baseFollow = recs[fkey_(r)] || {};
+  const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
-          f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su];
+          f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
+          Number(baseFollow.rowNo) || 0, baseFollow.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), baseFollow.su || '', baseFollow.mod || '', baseFollow.md || ''];
 }
 
 /* ================= data helpers ================= */
