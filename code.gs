@@ -1230,7 +1230,7 @@ function followSnapshotLineProof_(branch, phone, due, date, time, followRow, mem
     secret = Utilities.getUuid() + Utilities.getUuid() + Utilities.getUuid();
     props.setProperty('FOLLOW_SNAPSHOT_HMAC_SECRET', secret);
   }
-  const payload = [branch, phone, due, date, time, Number(followRow) || 0, membershipId, code].join('\\u001f');
+  const payload = [branch, phone, due, date, time, Number(followRow) || 0, membershipId, code].join('\u001f');
   return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payload, secret));
 }
 
