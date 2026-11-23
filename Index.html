@@ -799,7 +799,7 @@ function applyFollowSnapshotSave_(phone, due, action, notes, saved) {
   S.rows.forEach(r => {
     if (r[R.PHONE] !== phone || r[R.DUE] !== due) return;
     r[R.ACT] = action; r[R.NOTE] = notes; r[R.UPD] = stamp;
-    const x = byKey[String(r[R.LAST]) + '|' + String(r[R.TIME])];
+    const x = byKey[String(r[R.TRX_DATE]) + '|' + String(r[R.TIME])];
     if (x) {
       r[R.FOLLOW_ROW] = Number(x.followRow) || 0;
       r[R.SNAP_STATUS] = x.status || r[R.SNAP_STATUS];
