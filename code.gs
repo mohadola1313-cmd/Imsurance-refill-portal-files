@@ -1015,18 +1015,23 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
     Object.keys(transactions).sort().forEach(function(key) {
       const p = transactions[key];
       let rowNo = p.followRow;
+      let existingRow = null;
       if (rowNo) {
         if (rowNo < 2 || rowNo > last) throw new Error('The loaded Follow Up record is no longer available. Explore again.');
-        // Validate only the addressed record; do not reload or search the Follow Up sheet.
-        const identity = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getDisplayValues()[0].map(String);
+        // Read only this already-loaded Follow Up record; preserve its independent status fields.
+        existingRow = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getValues()[0];
+        const identity = existingRow.map(s_);
         if (identity[0] !== b || identity[1] !== phone || identity[3] !== p.date || identity[4] !== p.time || identity[15]) {
           throw new Error('The loaded Follow Up record has changed. Explore again.');
         }
       } else {
         rowNo = nextRow++;
       }
+      const autoStatus = existingRow ? s_(existingRow[11]) : (p.status || 'incomplete');
+      const modifiedStatus = existingRow ? s_(existingRow[16]) : '';
+      const effectiveStatus = modifiedStatus || autoStatus || 'incomplete';
       const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), action, notes, stamp, by,
-        '', p.statusUpdated || stamp, p.modifiedDue, p.modifiedDate, '', '', p.status || 'incomplete'];
+        autoStatus, p.statusUpdated || stamp, p.modifiedDue, p.modifiedDate, '', modifiedStatus, effectiveStatus];
       writes.push({rowNo:rowNo, row:row});
       queueKeys.push(phone + '|' + p.date + '|' + p.time);
     });
