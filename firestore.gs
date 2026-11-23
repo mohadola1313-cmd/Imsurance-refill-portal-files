@@ -391,7 +391,7 @@ function firestoreAssertIndexReadTarget_() {
 
 // Single-read Explore snapshot: derive both the portal row array and follow-up map
 // from the same Firestore response instead of listing purchaseLines twice.
-function firestoreReadExploreSnapshotP0661_() {
+function firestoreReadExploreSnapshotLegacyP0661_() {
   firestoreAssertIndexReadTarget_();
   const docs = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION);
   const rows = [], follow = Object.create(null);
@@ -412,8 +412,8 @@ function firestoreReadExploreSnapshotP0661_() {
 }
 
 // Kept as compatibility wrappers for any other existing callers.
-function firestoreReadBranchRowsP0661_() { return firestoreReadExploreSnapshotP0661_().rows; }
-function firestoreReadFollowMapP0661_() { return firestoreReadExploreSnapshotP0661_().follow; }
+function firestoreReadBranchRowsP0661_() { return firestoreReadExploreSnapshotLegacyP0661_().rows; }
+function firestoreReadFollowMapP0661_() { return firestoreReadExploreSnapshotLegacyP0661_().follow; }
 
 function firestoreSyncAffectedP0661_(rows) {
   firestoreAssertTestTarget_();
