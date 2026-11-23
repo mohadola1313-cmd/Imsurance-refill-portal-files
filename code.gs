@@ -923,18 +923,19 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
     const by = sess_(token).id;
     const action = idx ? CONFIG.ACTIONS[idx - 1] : '';
     const writes = [], queueKeys = [];
+    let nextRow = Math.max(last + 1, 2);
     Object.keys(transactions).sort().forEach(function(key) {
       const p = transactions[key];
       let rowNo = p.followRow;
       if (rowNo) {
         if (rowNo < 2 || rowNo > last) throw new Error('The loaded Follow Up record is no longer available. Explore again.');
         // Validate only the addressed record; do not reload or search the Follow Up sheet.
-        const identity = sh.getRange(rowNo, 1, 1, 5).getDisplayValues()[0].map(String);
+        const identity = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getDisplayValues()[0].map(String);
         if (identity[0] !== b || identity[1] !== phone || identity[3] !== p.date || identity[4] !== p.time || identity[15]) {
           throw new Error('The loaded Follow Up record has changed. Explore again.');
         }
       } else {
-        rowNo = Math.max(last + 1, 2);
+        rowNo = nextRow++;
       }
       const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), action, notes, stamp, by,
         p.status, p.statusUpdated || stamp, p.modifiedDue, p.modifiedDate, ''];
@@ -1130,10 +1131,11 @@ function getMemberHistory(token, branch, membershipId) {
 // purchase date, due date shown, complete?, time, pre-net value, modified?, calculated due date,
 // follow up action, notes, saved at, permanently mirrored status, status updated at
 function detail_(r, recs) {
-  const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || recs[fkey_(r)] || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
+  const baseFollow = recs[fkey_(r)] || {};
+  const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
           f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
-          Number(f.rowNo) || 0, f.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), f.su || '', f.mod || '', f.md || ''];
+          Number(baseFollow.rowNo) || 0, f.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), f.su || '', f.mod || '', f.md || ''];
 }
 
 /* ================= data helpers ================= */
