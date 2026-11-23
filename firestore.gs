@@ -23,6 +23,8 @@ const FIRESTORE_INDEX_CONFIG = Object.freeze({
 /** One-time initial index build. Run manually from the Apps Script editor. */
 function firestoreInitialSyncP0661() {
   firestoreAssertTestTarget_();
+  // Disable Firestore reads during a rebuild; Explore will safely fall back to Sheets.
+  PropertiesService.getScriptProperties().setProperty('FIRESTORE_INDEX_P0661_READY', '0');
   const branch = FIRESTORE_INDEX_CONFIG.BRANCH;
   const rows = readBranch_(branch); // reads canonical Sheets + current Follow Up state
   if (!rows.length) throw new Error('P0661 has no saved rows in the test spreadsheet.');
