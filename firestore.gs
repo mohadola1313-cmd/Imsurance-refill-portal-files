@@ -314,8 +314,8 @@ function firestoreLineIdForRow_(r) { return firestoreStableId_('l', flinekey_(r)
 function firestoreTxIdForRow_(r) { return firestoreStableId_('t', fkey_(r)); }
 
 // Builds canonical Firestore documents from the current Sheets state. No writes occur here.
-function firestoreBuildCurrentProjection_(branch, rows) {
-  const follow = followMap_(branch), txs = Object.create(null), lines = [], now = new Date().toISOString();
+function firestoreBuildCurrentProjection_(branch, rows, followOverride) {
+  const follow = followOverride || followMap_(branch), txs = Object.create(null), lines = [], now = new Date().toISOString();
   rows.forEach(function(r){
     const txKey=fkey_(r), txId=firestoreTxIdForRow_(r), lineId=firestoreLineIdForRow_(r);
     const state=follow[flinekey_(r)] || follow[txKey+'|'+s_(r[I.CODE])] || follow[txKey] || {};
