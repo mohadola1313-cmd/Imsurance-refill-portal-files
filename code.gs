@@ -892,7 +892,7 @@ function saveFollow(token, branch, phone, due, actionIdx, notes, snapshotTransac
 function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapshotTransactions) {
   const idx = Number(actionIdx) || 0;
   if (idx < 0 || idx > CONFIG.ACTIONS.length) throw new Error('Choose one of the five actions.');
-  phone = String(phone || '').replace(/\\D/g, '');
+  phone = String(phone || '').trim();
   notes = String(notes == null ? '' : notes).replace(/\\r/g, '').slice(0, 1000);
   if (!idx && !notes.trim()) throw new Error('Choose an action or write a note.');
   if (!isDate_(due) || !phone) throw new Error('Choose a valid customer and due date.');
