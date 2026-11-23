@@ -1135,7 +1135,7 @@ function detail_(r, recs) {
   const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
           f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
-          Number(baseFollow.rowNo) || 0, f.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), f.su || '', f.mod || '', f.md || ''];
+          Number(baseFollow.rowNo) || 0, baseFollow.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), baseFollow.su || '', baseFollow.mod || '', baseFollow.md || ''];
 }
 
 /* ================= data helpers ================= */
