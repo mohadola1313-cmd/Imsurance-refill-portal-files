@@ -29,3 +29,12 @@ A Follow Up update can succeed while its Firestore projection fails. The user’
 
 ### Status
 **Documented for design; no application code, Sheets data, Firestore data, deployment, or main branch was changed as part of this review.**
+
+## 2026-11-23 — Reliability and monthly Explore snapshot implementation
+
+- Added `firestore_reliability.gs` for a durable P0661 outbox queue, transaction-level retry/reconciliation, processing leases, exponential backoff, and a manual trigger installer.
+- Routed P0661 upload, delete, status, modified due date, group due date, and follow-up writes through the outbox before canonical writes; bounded immediate processing runs under ScriptLock.
+- Added transaction reconciliation that removes stale purchase-line documents and deletes empty transaction documents.
+- Replaced the P0661 Explore fast path with due-month Firestore queries and versioned, chunked CacheService snapshots. Pending sync or concurrent revision changes force a locked Sheets fallback.
+- Added read-only helper self-tests. They have not yet been executed in Apps Script.
+- No trigger installation, live Sheets/Firestore writes, initial index build, deployment, or merge was performed. Integration testing and performance measurements remain pending.
