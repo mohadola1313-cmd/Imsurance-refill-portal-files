@@ -414,9 +414,8 @@ function saveUpload(token, branch, files, keepMilk) {
     }
     writeBranch_(b, finalRows);
     applyAutomaticRefillCompletion_(b, finalRows);
-    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
-      firestoreProcessPendingLockedP0661_();
-    }
+    // Firestore is a read model: enqueue above, then let the retry worker reconcile
+    // after this save releases its lock. Do not make the user wait for Firestore here.
 
     return { branch: b, previousLast: previousLast, newLast: lastDate_(finalRows), rowsSaved: finalRows.length,
              removed: removed, removedCodes: removedCodes, duplicates: duplicates, milkKept: milkKept };
@@ -956,14 +955,21 @@ function followMap_(b) {
 }
 
 function followSheet_() {
-  const ss=cloud_(), sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET)||ss.insertSheet(CONFIG.FOLLOW_SHEET);
+  const ss=cloud_();
+  let sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET);
+  const isNew=!sh;
+  if(!sh) sh=ss.insertSheet(CONFIG.FOLLOW_SHEET);
   const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Status','Status Updated','Modified Due Date','Modified Date','Item Code'];
-  if(sh.getLastRow()===0){sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');}
-  else {
+  if(sh.getLastRow()===0){
+    sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
+  } else {
     const old=sh.getRange(1,1,1,Math.max(13,sh.getLastColumn())).getValues()[0].map(String);
     H.forEach(function(h,i){if(old[i]!==h) sh.getRange(1,i+1).setValue(h);});
   }
-  sh.getRange(1,1,Math.max(1,sh.getLastRow()),H.length).setNumberFormat('@'); sh.setFrozenRows(1); return sh;
+  // Text formatting is initialization work, not part of every Save Notes request.
+  if(isNew) sh.getRange(1,1,sh.getMaxRows(),H.length).setNumberFormat('@');
+  sh.setFrozenRows(1);
+  return sh;
 }
 
 // transaction identity ignores Due Date: changing a due date must not create another transaction record
