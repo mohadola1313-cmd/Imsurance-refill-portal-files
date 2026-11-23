@@ -506,7 +506,7 @@ function explore(token, branch, date, min, max, ym) {
     return a[I.NAME].localeCompare(c[I.NAME]) || a[I.PHONE].localeCompare(c[I.PHONE]) ||
            a[I.CODE].localeCompare(c[I.CODE]) || a[I.TIME].localeCompare(c[I.TIME]);
   });
-  return { counts: counts, rows: list.map(function (r) { return detail_(r, recs); }) };
+  return { counts: counts, rows: list.map(function (r) { return detail_(r, recs, b); }) };
 }
 
 // code '*' marks every purchase line of the customer due on that date (conclusion page);
@@ -901,7 +901,8 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
   const transactions = Object.create(null);
   snapshotTransactions.forEach(function(t) {
     const date = String(t.date || ''), time = String(t.time || ''), rowNo = Number(t.followRow) || 0;
-    if (!isDate_(date) || !/^\\d{2}:\\d{2}:\\d{2}$/.test(time) || !Array.isArray(t.membershipIds)) {
+    if (!isDate_(date) || !/^\\d{2}:\\d{2}:\\d{2}$/.test(time) || !Array.isArray(t.membershipIds) ||
+        String(t.proof || '') !== followSnapshotProof_(b, phone, due, date, time, rowNo)) {
       throw new Error('The loaded snapshot contains an invalid transaction. Explore again.');
     }
     const key = date + '|' + time;
@@ -1108,7 +1109,7 @@ function searchMember(token, branch, query) {
     return a[I.NAME].localeCompare(c[I.NAME]) || a[I.PHONE].localeCompare(c[I.PHONE]) ||
            eff_(a).localeCompare(eff_(c)) || a[I.CODE].localeCompare(c[I.CODE]) || a[I.TIME].localeCompare(c[I.TIME]);
   });
-  return { members: found.members, rows: found.list.map(function (r) { return detail_(r, recs); }) };
+  return { members: found.members, rows: found.list.map(function (r) { return detail_(r, recs, b); }) };
 }
 
 // Full purchase history for one exact Membership ID, including completed lines.
@@ -1138,15 +1139,27 @@ function getMemberHistory(token, branch, membershipId) {
   return { membershipId:mid, invoices:order.map(function(k){ return grouped[k]; }) };
 }
 
+// Signed Explore snapshot identity: the browser can return the loaded transaction without allowing forged keys.
+function followSnapshotProof_(branch, phone, due, date, time, followRow) {
+  const props = PropertiesService.getScriptProperties();
+  let secret = props.getProperty('FOLLOW_SNAPSHOT_HMAC_SECRET');
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('FOLLOW_SNAPSHOT_HMAC_SECRET', secret);
+  }
+  const payload = [branch, phone, due, date, time, Number(followRow) || 0].join('\\u001f');
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payload, secret));
+}
+
 // one saved line as a detail row: name, phone, item code, item description, quantity, Membership ID,
 // purchase date, due date shown, complete?, time, pre-net value, modified?, calculated due date,
 // follow up action, notes, saved at, permanently mirrored status, status updated at
-function detail_(r, recs) {
+function detail_(r, recs, branch) {
   const baseFollow = recs[fkey_(r)] || {};
   const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
           f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
-          Number(baseFollow.rowNo) || 0, baseFollow.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), baseFollow.su || '', baseFollow.mod || '', baseFollow.md || '', r[I.DATE]];
+          Number(baseFollow.rowNo) || 0, baseFollow.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), baseFollow.su || '', baseFollow.mod || '', baseFollow.md || '', r[I.DATE], followSnapshotProof_(branch, r[I.PHONE], eff_(r), r[I.DATE], r[I.TIME], Number(baseFollow.rowNo) || 0)];
 }
 
 /* ================= data helpers ================= */
