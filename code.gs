@@ -1147,7 +1147,7 @@ function followSnapshotProof_(branch, phone, due, date, time, followRow) {
     secret = Utilities.getUuid() + Utilities.getUuid() + Utilities.getUuid();
     props.setProperty('FOLLOW_SNAPSHOT_HMAC_SECRET', secret);
   }
-  const payload = [branch, phone, due, date, time, Number(followRow) || 0].join('\\u001f');
+  const payload = [branch, phone, due, date, time, Number(followRow) || 0].join('\u001f');
   return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payload, secret));
 }
 
