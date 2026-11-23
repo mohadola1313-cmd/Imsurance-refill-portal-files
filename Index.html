@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insurance Refill Portal</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--paper:#f2f5f3;--surface:#fff;--ink:#16231f;--mut:#5b6b65;--line:#d3dcd7;--pri:#0d5c4d;--priL:#dfefea;--amber:#b96a0b;--amberL:#fbefd9;--bad:#a3261c;--badL:#fbe9e7;--ok:#16643a;--okL:#e3f3e9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,Tahoma,Arial,sans-serif}
+header{position:sticky;top:0;z-index:120;display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--pri);color:#fff;min-height:56px;box-shadow:0 3px 14px rgba(0,0,0,.16)}
+header b{font-size:17px}
+header span{opacity:.8;font-size:13px}
+header .sp{flex:1}
+header button{background:transparent;color:#fff;border-color:rgba(255,255,255,.45)}
+main{max-width:1000px;margin:24px auto;padding:0 16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px}
+h2{margin:0 0 12px;font-size:19px;font-weight:600}
+h3{margin:0 0 8px;font-size:16px;font-weight:600}
+label{display:block;font-size:13px;color:var(--mut);margin:12px 0 4px}
+input,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff;color:var(--ink)}
+input[type=checkbox]{width:18px;height:18px;padding:0;accent-color:var(--pri);cursor:pointer}
+button{font:inherit;padding:9px 16px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
+button:hover:not(:disabled){border-color:var(--pri)}
+button:disabled{opacity:.5;cursor:default}
+button.p{background:var(--pri);border-color:var(--pri);color:#fff}
+button.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+button.on{background:var(--priL);border-color:var(--pri);color:var(--pri);font-weight:600}
+button.link{border:0;background:none;color:var(--pri);padding:4px 0;text-decoration:underline}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>*{flex:1 1 180px;min-width:0}
+.seg{display:flex;gap:6px}
+.seg button{flex:1}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:8px}
+.opt{text-align:left;padding:18px;border-radius:10px}
+.opt b{display:block;font-size:16px;margin-bottom:2px}
+.opt span{color:var(--mut);font-size:13px}
+.msg{padding:10px 12px;border-radius:6px;margin:12px 0;font-size:14px}
+.msg.bad{background:var(--badL);color:var(--bad)}
+.msg.ok{background:var(--okL);color:var(--ok)}
+.msg.info{background:var(--priL);color:#0a4a3e}
+.mut{color:var(--mut)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal>div{text-align:center;font-size:12px;color:var(--mut);padding:2px 0}
+.d{position:relative;height:42px;padding:0}
+.d.sel{background:var(--priL);border-color:var(--pri);font-weight:600}
+.d i{position:absolute;top:2px;right:3px;min-width:16px;padding:0 4px;border-radius:8px;background:var(--amberL);color:var(--amber);font:600 11px/16px "Segoe UI",system-ui,sans-serif;font-style:normal}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--mut);font-weight:600}
+td.wrap{white-space:normal;min-width:180px}
+table.grid{border-collapse:collapse;width:100%}
+table.grid th,table.grid td{border:1px solid #9fb3ab;padding:8px 10px}
+table.grid thead th{background:var(--pri);color:#fff;font-weight:700;border-color:#0a4a3e}
+.md{width:150px;padding:5px 6px}
+button.sm{padding:4px 10px;font-size:12px}
+.tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:8px;background:var(--amberL);color:var(--amber);font-size:11px;font-weight:600}
+.st{display:inline-flex;gap:8px;align-items:center;cursor:pointer;margin:0;color:var(--ink);font-size:13px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.req{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.req:last-child{border-bottom:0}
+.menuBtn{display:none!important}.sideNav{position:fixed;left:0;top:0;bottom:0;width:min(290px,84vw);background:#101a17;border:0;border-radius:0 18px 18px 0;padding:78px 14px 18px;z-index:220;box-shadow:12px 0 40px rgba(0,0,0,.3);transform:translateX(-105%);transition:transform .22s ease;color:#eef5f1}.sideNav.open{transform:translateX(0)}.sideNav b{display:block;font-size:12px;color:#8fa39b;padding:0 10px 12px}.sideNav button{display:flex;align-items:center;width:100%;text-align:left;margin:5px 0;padding:12px;border-radius:10px;background:#18231f;border:1px solid #293933;color:#eaf4ef}.sideNav button.on{background:#285747;border-color:#5aa88d;color:#fff}.drawerShade{position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:210}.drawerShade[hidden]{display:none!important}
+.sideNav b{display:block;font-size:13px;color:var(--mut);padding:4px 8px 8px}.sideNav button{width:100%;text-align:left;margin:3px 0}.sideNav button.on{font-weight:700}
+body.logged main{margin:18px auto;max-width:1000px}
+.analyticsGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.metric{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface)}.metric b{display:block;font-size:20px}.metric span{color:var(--mut);font-size:12px}.gaugeGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin-top:12px}.gaugeCard{border:1px solid var(--line);border-radius:9px;padding:9px 6px;background:var(--surface);display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}.gaugeRing{--pct:0;--gauge-color:#16a34a;--gauge-track:#ef4444;width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--gauge-color) calc(var(--pct)*1%),var(--gauge-track) 0);position:relative}.gaugeRing:before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--surface)}.gaugeValue{position:relative;font-size:14px;font-weight:800;color:var(--ink)}.gaugeDay{font-size:12px;font-weight:700;color:var(--ink)}.gaugeDetail{font-size:10px;color:var(--mut);white-space:nowrap}.gaugeEmpty{font-size:12px;color:var(--mut);padding:14px 4px;text-align:center}
+@media (max-width:800px){.analyticsGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){header{padding:8px 10px;gap:7px;min-height:54px}header b{font-size:14px;white-space:nowrap}header span{font-size:11px;max-width:95px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}header button{padding:6px 8px;font-size:12px}.menuBtn{display:inline-flex!important;align-items:center;justify-content:center;padding:5px 9px;font-size:20px;line-height:1;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:rgba(255,255,255,.1);color:#fff}body.logged main{margin:12px auto;padding:0 10px}.analyticsGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:13px;border-radius:13px}.monthGauge{padding:10px;grid-template-columns:58px minmax(0,1fr);gap:8px}.monthGauge .gaugeRing{width:58px;height:58px}.monthGauge .gaugePct{font-size:18px}.monthGauge .gaugeNumbers{font-size:10px;white-space:nowrap}.fc .identity-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.fc .identity-item{padding:6px 5px}.fc .identity-item .lbl{font-size:9px}.fc .identity-item .val{font-size:11px}.fc .fh b{font-size:16px}.fc .fb{padding:10px}.fc .action-block,.fc .status-block{padding:8px}.fc .bar{gap:5px}.fc button.sm{padding:5px 7px;font-size:11px}}
+details{margin-top:8px}
+summary{cursor:pointer;color:inherit}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:640px){.cards{grid-template-columns:1fr}}
+.fc{border:2px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.fh{padding:10px 14px;font-size:14px}
+.fh b{display:block;font-size:16px}
+.fb{padding:2px 14px 14px}
+.fb textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;resize:vertical}
+.fst{font-size:13px}
+.fsec{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
+.ok-t{color:var(--ok)}
+.bad-t{color:var(--bad)}
+[hidden]{display:none!important}
+
+/* ===== Modern Customer Follow Up + WhatsApp ===== */
+.fc{border:1px solid #26342f;border-radius:18px;overflow:hidden;background:#111916;color:#eef5f1;box-shadow:0 10px 28px rgba(0,0,0,.18);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.fc:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,0,0,.24);border-color:#355047}
+.fc .fh{padding:16px 16px 14px;background:linear-gradient(145deg,#17231f,#0e1512)!important;border-bottom:1px solid #26342f}
+.fc .fh b{font-size:18px;line-height:1.25;color:#fff;margin-bottom:10px}
+.fc .identity-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(110px,.8fr) minmax(100px,.75fr);gap:8px}
+.fc .identity-item{background:#18231f;border:1px solid #2b3a35;border-radius:10px;padding:7px 9px;min-width:0}
+.fc .identity-item .lbl{display:block;color:#8fa39b;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.fc .identity-item .val{display:block;color:#f3f8f5;font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fc .due-pill{display:inline-flex;align-items:center;gap:6px;margin-top:9px;padding:5px 9px;border-radius:999px;background:#20352e;color:#bde7d6;font-size:11px;font-weight:700}
+.fc .fb{padding:14px 16px 16px;background:#111916}
+.fc .section-title{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8fa39b;font-weight:750;margin:0 0 6px}
+.fc label{color:#9fb0aa;margin:0 0 5px}
+.fc select,.fc textarea,.fc input[type=date]{background:#18231f;color:#eef5f1;border-color:#30423b;border-radius:10px}
+.fc select:focus,.fc textarea:focus,.fc input[type=date]:focus{border-color:#5aa88d;outline:none;box-shadow:0 0 0 2px rgba(90,168,141,.14)}
+.fc textarea{min-height:76px}
+.fc .action-block{padding:10px;background:#151f1c;border:1px solid #293933;border-radius:12px}
+.fc .status-block{padding:10px;background:#151f1c;border:1px solid #293933;border-radius:12px}
+.fc .status-label{font-size:11px;color:#8fa39b;text-transform:uppercase;letter-spacing:.05em;font-weight:750}
+.fc button.sm{border-color:#34473f;background:#1b2823;color:#dce9e4;border-radius:9px}
+.fc button.sm:hover:not(:disabled){border-color:#5aa88d;background:#20332c}
+.fc button.sm.on{background:#285747;border-color:#5aa88d;color:#fff}
+.fc button.fs{background:linear-gradient(135deg,#19745d,#0d5c4d);border-color:#318c73;color:#fff;border-radius:10px;font-weight:700;padding:8px 14px}
+.fc .wa-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#123b2f;border:1px solid #2d765f;color:#d7f6e9;border-radius:10px;font-weight:750;padding:9px 12px}
+.fc .wa-btn:hover:not(:disabled){background:#185340;border-color:#4aa789}
+.fc .fsec{border-top:1px solid #293933;margin-top:12px;padding-top:12px}
+.fc .fst{font-size:12px;margin-left:2px}
+.analyticsGrid{display:none}
+.gaugeGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}
+.monthGauge{background:#111916;border:1px solid #26342f;border-radius:16px;padding:15px;display:grid;grid-template-columns:74px 1fr;gap:12px;align-items:center;box-shadow:0 8px 22px rgba(0,0,0,.12)}
+.monthGauge .gaugeRing{width:74px;height:74px}
+.monthGauge .gaugeLabel{font-size:12px;color:#8fa39b;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.monthGauge .gaugePct{font-size:22px;font-weight:850;color:#f3f8f5;line-height:1.1;margin:2px 0 4px}
+.monthGauge .gaugeNumbers{font-size:12px;color:#b6c5bf;line-height:1.45}
+.monthGauge .gaugeNumbers strong{color:#eef5f1}
+.analyticsDark{background:linear-gradient(145deg,#101714,#0d1311);border:1px solid #26342f;border-radius:18px;padding:14px}
+.analyticsDark .mut{color:#8fa39b}
+.wa-modal{position:fixed;inset:0;background:rgba(2,7,5,.72);backdrop-filter:blur(5px);display:grid;place-items:center;padding:18px;z-index:1000}
+.wa-dialog{width:min(430px,100%);background:#111916;border:1px solid #33473f;border-radius:20px;box-shadow:0 24px 70px rgba(0,0,0,.45);padding:20px;color:#eef5f1}
+.history-dialog{width:min(1050px,100%);max-height:88vh;overflow:auto}.history-invoice{border:1px solid #3a5148;border-radius:14px;margin:12px 0;overflow:hidden}.history-head{padding:12px 14px;color:#eef5f1;display:flex;gap:12px;flex-wrap:wrap;align-items:center}.history-note{padding:8px 14px;background:rgba(0,0,0,.18);color:#d5e4dc;font-size:13px}.history-table{width:100%;border-collapse:collapse;font-size:12px}.history-table th,.history-table td{padding:8px;border-top:1px solid rgba(255,255,255,.1);text-align:left}.history-table th{color:#a8bdb2}.history-table .wrap{min-width:150px;white-space:normal}
+.wa-dialog h3{font-size:18px;margin:0 0 5px;color:#fff}.wa-dialog p{margin:0 0 16px;color:#8fa39b;font-size:13px}
+.wa-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}.wa-option{padding:15px;border:1px solid #30423b;border-radius:13px;background:#18231f;color:#eef5f1;text-align:left}.wa-option:hover{border-color:#5aa88d;background:#1d3028}.wa-option b{display:block;font-size:14px;margin-bottom:3px}.wa-option span{font-size:11px;color:#8fa39b}.wa-close{width:100%;margin-top:10px;background:#18231f!important;color:#b8c7c1!important;border-color:#30423b!important}
+@media (max-width:760px){.gaugeGrid{grid-template-columns:1fr}.fc .identity-grid{grid-template-columns:1fr 1fr}.fc .identity-item:first-child{grid-column:1/-1}.wa-options{grid-template-columns:1fr}.monthGauge{grid-template-columns:70px 1fr}}
+</style>
+</head>
+<body>
+<header id="bar" hidden>
+  <button type="button" class="menuBtn" id="menuBtn" aria-label="Open navigation" onclick="toggleDrawer(true)">☰</button>
+  <b>Insurance Refill Portal</b><span id="who"></span><div class="sp"></div>
+  <button type="button" onclick="goHome()">Home</button>
+  <button type="button" onclick="logout()">Log out</button>
+</header>
+<div id="drawerShade" class="drawerShade" hidden onclick="toggleDrawer(false)"></div>
+<aside id="sideNav" class="sideNav" hidden>
+  <b>PORTAL MENU</b>
+  <button type="button" id="navUpload" onclick="toggleDrawer(false);goUpload()">⇧ &nbsp; Upload</button>
+  <button type="button" id="navDelete" onclick="toggleDrawer(false);goDelete()">⌫ &nbsp; Delete</button>
+  <button type="button" id="navExplore" onclick="toggleDrawer(false);goExplore()">▦ &nbsp; Explore saved data</button>
+  <button type="button" id="navSearch" onclick="toggleDrawer(false);goSearchPage()">⌕ &nbsp; Search for ID</button>
+  <button type="button" id="navExport" onclick="toggleDrawer(false);goExportPage()">⇩ &nbsp; Export</button>
+</aside>
+
+<main>
+  <section id="login" class="card" style="max-width:420px;margin:60px auto">
+    <h2>Insurance Refill Portal</h2>
+    <div class="seg">
+      <button type="button" id="rUser" class="on" onclick="setRole('user')">Branch user</button>
+      <button type="button" id="rAdmin" onclick="setRole('admin')">Admin</button>
+    </div>
+    <label id="lblId" for="uid">Branch name</label>
+    <input id="uid" autocomplete="username">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <div id="lmsg"></div>
+    <button type="button" class="p" id="lbtn" style="width:100%;margin-top:8px" onclick="doLogin()">Log in</button>
+    <p style="text-align:center;margin:16px 0 0"><span class="mut">New branch?</span> <button type="button" class="link" onclick="goRegister()">Register</button></p>
+    <p id="forgotWrap" style="text-align:center;margin:12px 0 0" hidden><button type="button" class="link" onclick="goForgot()">Forgot password?</button></p>
+  </section>
+
+  <section id="forgot" class="card" style="max-width:420px;margin:60px auto" hidden>
+    <h2>Admin password recovery</h2>
+    <p class="mut" style="margin-top:0">Enter the Admin ID and the recovery email registered for the Admin account.</p>
+    <label for="fAdmin">Admin ID</label>
+    <input id="fAdmin" autocomplete="username">
+    <label for="fEmail">Recovery email</label>
+    <input id="fEmail" type="email" autocomplete="email">
+    <div id="pwResetRequestMsg"></div>
+    <div class="bar" style="margin-top:8px">
+      <button type="button" class="p" id="pwResetRequestBtn" onclick="requestReset()">Send reset link</button>
+      <button type="button" onclick="show('login')">Back to login</button>
+    </div>
+  </section>
+
+  <section id="reset" class="card" style="max-width:420px;margin:60px auto" hidden>
+    <h2>Set a new Admin password</h2>
+    <p class="mut" style="margin-top:0">This link is valid for 15 minutes and can be used once.</p>
+    <label for="newPw">New password/PIN (at least 6 characters)</label>
+    <input id="newPw" type="password" autocomplete="new-password">
+    <label for="newPw2">Repeat the new password/PIN</label>
+    <input id="newPw2" type="password" autocomplete="new-password">
+    <div id="pwResetFinishMsg"></div>
+    <div class="bar" style="margin-top:8px">
+      <button type="button" class="p" id="pwResetFinishBtn" onclick="finishReset()">Set new password</button>
+      <button type="button" onclick="show('login')">Back to login</button>
+    </div>
+  </section>
+
+  <section id="register" class="card" style="max-width:420px;margin:60px auto" hidden>
+    <h2>Register a branch</h2>
+    <p class="mut" style="margin-top:0">After the admin approves your registration you can log in.</p>
+    <label for="rBranch">Branch name</label>
+    <input id="rBranch" autocomplete="off">
+    <label for="rPw">Password (at least 6 characters)</label>
+    <input id="rPw" type="password" autocomplete="new-password">
+    <label for="rPw2">Repeat the password</label>
+    <input id="rPw2" type="password" autocomplete="new-password">
+    <label for="rContact">Contact name or phone (optional)</label>
+    <input id="rContact" autocomplete="off">
+    <div id="rmsg"></div>
+    <div class="bar" style="margin-top:8px">
+      <button type="button" class="p" id="rbtn" onclick="doRegister()">Send registration</button>
+      <button type="button" onclick="show('login')">Back to login</button>
+    </div>
+  </section>
+
+  <section id="home" hidden>
+    <div class="card" id="pend" hidden>
+      <h3>Registration requests</h3>
+      <div id="pendList"></div>
+      <div id="pmsg"></div>
+    </div>
+    <div class="card">
+      <h2>What would you like to do?</h2>
+      <div id="brPick" hidden>
+        <label for="brSel">Branch</label>
+        <select id="brSel" onchange="S.branch=this.value;persistView_();goHome()"></select>
+      </div>
+      <p id="hInfo" class="mut"></p>
+      <div id="hmsg"></div>
+      <div class="opts">
+        <button type="button" class="opt" id="oExp" onclick="goExplore()"><b>Explore saved data</b><span>Pick a due date and see the customers due that day.</span></button>
+        <button type="button" class="opt" id="oUp" onclick="goUpload()"><b>Upload new file</b><span>Add a sales file (xlsx or csv) to the saved data.</span></button>
+        <button type="button" class="opt" id="oDel" onclick="goDelete()"><b>Delete a period</b><span>Remove saved rows between two invoice dates.</span></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="upload" class="card" hidden>
+    <h2>Upload new file</h2>
+    <div class="msg info" id="upInfo"></div>
+    <div class="row">
+      <div><label for="f1">Sales file</label><input type="file" id="f1" accept=".xlsx,.xls,.csv"></div>
+      <div style="flex:0 1 140px"><label for="q1">Quarter</label>
+        <select id="q1"><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></div>
+    </div>
+    <div class="row">
+      <div><label for="f2">Second sales file (optional)</label><input type="file" id="f2" accept=".xlsx,.xls,.csv"></div>
+      <div style="flex:0 1 140px"><label for="q2">Quarter</label>
+        <select id="q2"><option>Q1</option><option selected>Q2</option><option>Q3</option><option>Q4</option></select></div>
+    </div>
+    <div id="umsg"></div>
+    <div class="bar" style="margin-top:12px">
+      <button type="button" class="p" id="go" onclick="inspect()">Inspect files</button>
+      <button type="button" onclick="goHome()">Cancel</button>
+    </div>
+  </section>
+
+  <section id="inspect" class="card" hidden>
+    <h2>Confirm the dates</h2>
+    <div class="tw"><table>
+      <thead><tr><th>Quarter</th><th>File</th><th>Rows</th><th>Dates from</th><th>Dates to</th><th>Skipped rows</th></tr></thead>
+      <tbody id="inTb"></tbody>
+    </table></div>
+    <p id="inLast" class="mut"></p>
+    <div id="inMsg"></div>
+    <label class="st" style="margin:8px 0 2px"><input type="checkbox" id="milk"><span>Save milk items</span></label>
+    <p class="mut" style="font-size:13px;margin:0 0 12px">When checked, rows whose item code is in the milk items list are kept even if they are not in the master file.</p>
+    <div class="bar">
+      <button type="button" class="p" id="cf" onclick="confirmSave()">Confirm and save</button>
+      <button type="button" onclick="show('upload')">Revise</button>
+    </div>
+  </section>
+
+  <section id="del" class="card" hidden>
+    <h2>Delete a period</h2>
+    <div class="msg info" id="delInfo"></div>
+    <div class="row">
+      <div><label for="dFrom">From (invoice date)</label><input type="date" id="dFrom" oninput="$('dGo').hidden=true"></div>
+      <div><label for="dTo">To (invoice date)</label><input type="date" id="dTo" oninput="$('dGo').hidden=true"></div>
+    </div>
+    <div id="dmsg"></div>
+    <div class="bar" style="margin-top:12px">
+      <button type="button" class="p" id="dChk" onclick="checkDelete()">Check the period</button>
+      <button type="button" class="danger" id="dGo" onclick="doDelete()" hidden>Delete these rows</button>
+      <button type="button" onclick="goHome()">Cancel</button>
+    </div>
+  </section>
+
+  <section id="explore" hidden>
+    <div id="exMsg"></div>
+    <div class="card">
+      <div class="bar" style="margin-bottom:10px"><h2 style="margin:0;flex:1">Monthly analytical board</h2>
+        <div class="bar"><button type="button" onclick="shiftAnalyticsMonth(-1)" aria-label="Previous analytics month">&lsaquo;</button>
+        <b id="aMonthTitle" style="min-width:130px;text-align:center"></b>
+        <button type="button" onclick="shiftAnalyticsMonth(1)" aria-label="Next analytics month">&rsaquo;</button></div>
+      </div>
+      <p class="mut" style="margin-top:0">Monthly performance: completion, approved refills, and approved Pre-Net Value.</p>
+      <div class="analyticsGrid">
+        <div class="metric"><span>Original customers</span><b id="aTotal">0</b></div>
+        <div class="metric"><span>Complete now</span><b id="aComplete">0</b></div>
+        <div class="metric"><span>Incomplete now</span><b id="aIncomplete">0</b></div>
+        <div class="metric"><span>Completion</span><b id="aRate">0%</b></div>
+      </div>
+      <div id="aChart" class="gaugeGrid" aria-label="Daily cumulative progress gauges"></div>
+      <div id="aActions" class="mut" style="margin-top:12px"></div>
+    </div>
+    <div class="card" id="searchCard">
+      <div class="row">
+        <div style="flex:3 1 260px"><label for="q">Search by Membership ID or mobile number (all due dates)</label>
+          <input id="q" autocomplete="off" onkeydown="if(event.key==='Enter')doSearch()"></div>
+        <div class="bar" style="flex:0 0 auto"><button type="button" class="p" id="qgo" onclick="doSearch()">Search</button>
+          <button type="button" onclick="clearSearch()">Clear</button></div>
+      </div>
+      <div id="qmsg"></div>
+    </div>
+    <div class="card">
+      <div class="row" style="align-items:flex-start;gap:24px">
+        <div style="flex:1 1 320px">
+          <div class="bar" style="margin-bottom:8px">
+            <button type="button" onclick="shiftMonth(-1)" aria-label="Previous month">&lsaquo;</button>
+            <b id="mTitle" style="flex:1;text-align:center"></b>
+            <button type="button" onclick="shiftMonth(1)" aria-label="Next month">&rsaquo;</button>
+          </div>
+          <div class="cal" id="cal"></div>
+        </div>
+        <div style="flex:1 1 240px">
+          <label for="mn">Receipt net value from</label>
+          <input type="number" id="mn" min="0" step="any">
+          <label for="mx">Receipt net value to</label>
+          <input type="number" id="mx" min="0" step="any">
+          <p class="mut" style="font-size:13px;margin:8px 0 0">Filters by the total net value of each receipt.</p>
+          <div id="fmsg"></div>
+          <button type="button" class="p" id="exBtn" style="width:100%;margin-top:12px" onclick="doExplore()">Explore</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" id="resultsCard">
+      <div class="bar" style="margin-bottom:12px">
+        <button type="button" id="p1" class="on" onclick="setPage(1)">Conclusion page</button>
+        <button type="button" id="p2" onclick="setPage(2)">Details page</button>
+        <button type="button" id="p3" onclick="setPage(3)">Customer follow up</button>
+      </div>
+      <p id="sum" class="mut"></p>
+      <div class="tw" id="tbl"><table class="grid"><thead><tr id="th"></tr></thead><tbody id="tb"></tbody></table></div>
+      <div id="cwrap" hidden>
+        <div class="cards" id="cards"></div>
+        <div class="bar" id="cpager" hidden style="justify-content:center;margin-top:12px">
+          <button type="button" id="cprev" onclick="cPage(-1)">Previous</button>
+          <span id="cpg" class="mut"></span>
+          <button type="button" id="cnext" onclick="cPage(1)">Next</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" id="exportCard">
+      <div class="bar">
+        <b>Export</b><div style="flex:1"></div>
+        <button type="button" onclick="openExport('xlsx')">Export to Excel</button>
+        <button type="button" onclick="openExport('pdf')">Export to PDF</button>
+      </div>
+      <div id="xopt" hidden style="margin-top:8px">
+        <p class="mut" style="margin:0">The export follows the page you are on (conclusion or details) and the net value filter.</p>
+        <div class="row">
+          <div><label for="xFrom">Period from (due date)</label><input type="date" id="xFrom"></div>
+          <div><label for="xTo">Period to (due date)</label><input type="date" id="xTo"></div>
+          <div><label for="xSt">Status</label>
+            <select id="xSt"><option value="all">All</option><option value="complete">Completed</option><option value="incomplete">Incomplete</option></select></div>
+          <div><label for="xAct">User selection</label>
+            <select id="xAct"><option value="all">All selections</option></select></div>
+        </div>
+        <div class="bar" style="margin-top:12px">
+          <button type="button" class="p" id="xGo" onclick="doExport()">Download</button>
+          <button type="button" onclick="$('xopt').hidden=true">Cancel</button>
+        </div>
+      </div>
+      <div id="xmsg"></div>
+    </div>
+  </section>
+  <section id="searchPage" hidden><div class="card"><h2>Search for ID</h2><p class="mut">Find a customer by Membership ID or mobile number.</p><div id="searchMount"></div></div><div id="searchResultsMount"></div></section>
+  <section id="exportPage" hidden><div class="card"><h2>Export saved data</h2><p class="mut">Choose Excel or PDF and set your export filters.</p><div class="bar"><button type="button" class="p" onclick="openExport('xlsx')">Export to Excel</button><button type="button" onclick="openExport('pdf')">Export to PDF</button></div><div id="exportMount"></div></div></section>
+</main>
+
+
+<div id="historyModal" class="wa-modal" hidden>
+  <div class="wa-dialog history-dialog" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
+    <h3 id="historyTitle">📋 Member History</h3>
+    <p id="historySubtitle"></p>
+    <div id="historyContent"></div>
+    <button type="button" class="wa-close" onclick="closeMemberHistory()">Close</button>
+  </div>
+</div>
+
+<div id="waModal" class="wa-modal" hidden>
+  <div class="wa-dialog" role="dialog" aria-modal="true" aria-labelledby="waTitle">
+    <h3 id="waTitle">Send WhatsApp Message</h3>
+    <p id="waCustomer"></p>
+    <div class="wa-options">
+      <button type="button" class="wa-option" onclick="sendWhatsApp('ar')"><b>🇸🇦 العربية</b><span>رسالة إعادة صرف الأدوية المزمنة</span></button>
+      <button type="button" class="wa-option" onclick="sendWhatsApp('en')"><b>🇬🇧 English</b><span>Chronic medication refill message</span></button>
+    </div>
+    <button type="button" class="wa-close" onclick="closeWhatsAppModal()">Cancel</button>
+  </div>
+</div>
+<script>
+const SERVER_RESET_TOKEN = <?!= JSON.stringify(resetToken || '') ?>;
+const SAFE_RESET_TOKEN = /^[A-Za-z0-9-]+$/;
+const $ = id => document.getElementById(id);
+const p2 = n => String(n).padStart(2, '0');
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const NEED = ['Receipt Number','Trx Month','Trx Date','Trx Time','Loyalty Name','Loyalty Phone','Code','Description','Quantity','Pre-Net Value'];
+const S = {token:'', role:'', id:'', branch:'', firstInvoice:'', lastInvoice:'', files:[], ym:'', sel:'', page:1,
+           counts:{}, rows:[], explored:false, xfmt:'xlsx', resetToken:'', analyticsYm:'', analytics:null, view:'login'};
+let loginRole = 'user';
+
+function call(fn, ...a) {
+  return new Promise((res, rej) => google.script.run.withSuccessHandler(res)
+    .withFailureHandler(e => rej(new Error(String(e && e.message || e).replace(/^Error:\s*/, ''))))[fn](...a));
+}
+function note(id, text, cls) { const e = $(id); e.className = text ? 'msg ' + (cls || '') : ''; e.textContent = text || ''; }
+function show(id) {
+  ['login','forgot','reset','register','home','upload','inspect','del','explore','searchPage','exportPage'].forEach(x => $(x).hidden = x !== id);
+  const logged = !['login','forgot','reset','register'].includes(id) && !!S.token;
+  $('bar').hidden = !logged;
+  $('sideNav').hidden = !logged; $('drawerShade').hidden = true; $('sideNav').classList.remove('open');
+  document.body.classList.toggle('logged', logged);
+  if (logged) { if(id==='explore') restoreExploreCards_(); $('navExplore').classList.toggle('on', id === 'explore'); $('navUpload').classList.toggle('on', id === 'upload'); $('navDelete').classList.toggle('on', id === 'del'); $('navSearch').classList.toggle('on', id === 'searchPage'); $('navExport').classList.toggle('on', id === 'exportPage'); S.view = id; persistView_(); }
+}
+function toggleDrawer(open) { $('sideNav').classList.toggle('open',!!open); $('drawerShade').hidden=!open; }
+function mountPortalCards_(){
+  const search=$('searchCard'), results=$('resultsCard'), exp=$('exportCard');
+  if(search && $('searchMount')) $('searchMount').appendChild(search);
+  if(results && $('searchResultsMount')) $('searchResultsMount').appendChild(results);
+  if(exp && $('exportMount')) $('exportMount').appendChild(exp);
+}
+function goSearchPage(){ mountPortalCards_(); show('searchPage'); $('q').focus(); }
+function goExportPage(){ mountPortalCards_(); show('exportPage'); $('xopt').hidden=false; $('xFrom').value=S.sel||''; $('xTo').value=S.sel||''; populateExportActions_(); }
+function restoreExploreCards_(){
+  const ex=$('explore'); if($('searchCard')) ex.insertBefore($('searchCard'), ex.children[2]||null);
+  if($('resultsCard')) ex.appendChild($('resultsCard'));
+  if($('exportCard')) ex.appendChild($('exportCard'));
+}
+function fail(e, id) {
+  if (/Session expired/.test(e.message)) { clearSession_(); S.token = ''; show('login'); note('lmsg', e.message, 'bad'); }
+  else note(id, e.message, 'bad');
+}
+
+function persistSession_() {
+  try { localStorage.setItem('irpSession', JSON.stringify({token:S.token,role:S.role,id:S.id,branch:S.branch,ym:S.ym,sel:S.sel,page:S.page,analyticsYm:S.analyticsYm,view:S.view})); } catch(e) {}
+}
+function clearSession_() { try { localStorage.removeItem('irpSession'); } catch(e) {} }
+function persistView_() {
+  try { const x = JSON.parse(localStorage.getItem('irpSession') || '{}'); Object.assign(x,{token:S.token,role:S.role,id:S.id,branch:S.branch,ym:S.ym,sel:S.sel,page:S.page,analyticsYm:S.analyticsYm,view:S.view}); localStorage.setItem('irpSession',JSON.stringify(x)); } catch(e) {}
+}
+async function restoreSession_() {
+  try { const x = JSON.parse(localStorage.getItem('irpSession') || 'null'); if (!x || !x.token) return;
+    Object.assign(S,{token:x.token||'',role:x.role||'',id:x.id||'',branch:x.branch||'',ym:x.ym||'',sel:x.sel||'',page:x.page||1,analyticsYm:x.analyticsYm||'',view:x.view||'home'});
+    await goHome();
+    if (x.view === 'explore') {
+      goExplore();
+      if (x.ym) S.ym = x.ym;
+      if (x.sel && x.sel.slice(0,7) === S.ym) S.sel = x.sel;
+      drawCal();
+      await doExplore();
+      setPage(x.page || 1);
+    } else if (x.view === 'upload') goUpload();
+    else if (x.view === 'del') goDelete();
+    else if (x.view === 'searchPage') goSearchPage();
+    else if (x.view === 'exportPage') goExportPage();
+  } catch(e) { clearSession_(); S.token=''; show('login'); }
+}
+
+/* ---------- login and registration ---------- */
+function setRole(r) {
+  loginRole = r;
+  $('rUser').classList.toggle('on', r === 'user');
+  $('rAdmin').classList.toggle('on', r === 'admin');
+  $('lblId').textContent = r === 'admin' ? 'Admin ID' : 'Branch name';
+  $('forgotWrap').hidden = r !== 'admin';
+}
+function goForgot() {
+  $('fAdmin').value = $('uid').value || '';
+  $('fEmail').value = '';
+  note('pwResetRequestMsg', '');
+  show('forgot');
+}
+async function requestReset() {
+  $('pwResetRequestBtn').disabled = true;
+  note('pwResetRequestMsg', '');
+  try {
+    const m = await call('requestAdminPasswordReset', $('fAdmin').value, $('fEmail').value);
+    note('pwResetRequestMsg', m, 'ok');
+  } catch (e) { note('pwResetRequestMsg', e.message, 'bad'); }
+  finally { $('pwResetRequestBtn').disabled = false; }
+}
+function openResetFromUrl() {
+  const p = new URLSearchParams(window.location.search);
+  const page = (p.get('page') || '').toLowerCase();
+  const raw = SERVER_RESET_TOKEN || (page === 'reset' ? (p.get('token') || '') : '');
+  const token = SAFE_RESET_TOKEN.test(raw) ? raw : '';
+  if (page !== 'reset' || !token) return false;
+  S.resetToken = token;
+  try { history.replaceState({}, document.title, window.location.pathname); } catch (e) {}
+  note('pwResetFinishMsg', '');
+  show('reset');
+  return true;
+}
+async function finishReset() {
+  if ($('newPw').value.length < 6) return note('pwResetFinishMsg', 'Password must be at least 6 characters.', 'bad');
+  if ($('newPw').value !== $('newPw2').value) return note('pwResetFinishMsg', 'The two passwords do not match.', 'bad');
+  $('pwResetFinishBtn').disabled = true;
+  note('pwResetFinishMsg', '');
+  try {
+    const m = await call('resetAdminPassword', S.resetToken, $('newPw').value);
+    $('newPw').value = ''; $('newPw2').value = '';
+    S.resetToken = '';
+    note('pwResetFinishMsg', m, 'ok');
+    setRole('admin');
+    setTimeout(() => show('login'), 1200);
+  } catch (e) { note('pwResetFinishMsg', e.message, 'bad'); }
+  finally { $('pwResetFinishBtn').disabled = false; }
+}
+async function doLogin() {
+  note('lmsg', '');
+  $('lbtn').disabled = true;
+  try {
+    const r = await call('login', $('uid').value, $('pw').value, loginRole);
+    S.token = r.token; S.role = r.role; S.id = r.id; S.branch = r.role === 'admin' ? '' : r.id;
+    persistSession_();
+    $('pw').value = '';
+    await goHome();
+  } catch (e) { note('lmsg', e.message, 'bad'); }
+  finally { $('lbtn').disabled = false; }
+}
+async function logout() {
+  try { await call('logout', S.token); } catch (e) {}
+  S.token = ''; show('login');
+}
+function goRegister() {
+  ['rBranch','rPw','rPw2','rContact'].forEach(i => $(i).value = '');
+  note('rmsg', ''); show('register');
+}
+async function doRegister() {
+  if ($('rPw').value !== $('rPw2').value) return note('rmsg', 'The two passwords do not match.', 'bad');
+  $('rbtn').disabled = true;
+  try {
+    const m = await call('register', $('rBranch').value, $('rPw').value, $('rContact').value);
+    $('rPw').value = ''; $('rPw2').value = '';
+    note('rmsg', m, 'ok');
+  } catch (e) { note('rmsg', e.message, 'bad'); }
+  finally { $('rbtn').disabled = false; }
+}
+
+/* ---------- home ---------- */
+async function goHome() {
+  note('hmsg', ''); note('pmsg', '');
+  try {
+    const h = await call('getHome', S.token, S.branch);
+    S.firstInvoice = h.firstInvoice; S.lastInvoice = h.lastInvoice;
+    $('who').textContent = (S.role === 'admin' ? 'Admin ' : 'Branch ') + S.id;
+    $('brPick').hidden = S.role !== 'admin';
+    if (S.role === 'admin') {
+      $('brSel').innerHTML = '<option value="">Choose a branch</option>' + h.branches.map(b => `<option>${esc(b)}</option>`).join('');
+      $('brSel').value = S.branch;
+    }
+    $('pend').hidden = !(S.role === 'admin' && h.pending.length);
+    $('pendList').innerHTML = h.pending.map(p => `<div class="req"><div style="flex:1"><b dir="auto">${esc(p.branch)}</b><div class="mut" style="font-size:13px">${esc(p.contact)} ${esc(p.requested)}</div></div>` +
+      `<button type="button" class="p" data-a="approve" data-b="${esc(p.branch)}">Approve</button><button type="button" data-a="reject" data-b="${esc(p.branch)}">Reject</button></div>`).join('');
+    $('hInfo').textContent = !S.branch ? 'Choose a branch to continue.' : h.problem ? ''
+      : h.hasData ? `Saved data found for ${S.branch}: ${h.rows.toLocaleString()} rows, invoice dates from ${h.firstInvoice} to ${h.lastInvoice}.`
+      : `No saved data yet for ${S.branch}. Upload a file to start.`;
+    $('oExp').disabled = $('oDel').disabled = !h.hasData || !!h.problem;
+    $('oUp').disabled = !S.branch || !!h.problem;
+    $('navExplore').disabled = !h.hasData || !!h.problem;
+    $('navDelete').disabled = !h.hasData || !!h.problem;
+    $('navUpload').disabled = !S.branch || !!h.problem;
+    if (h.problem) note('hmsg', h.problem, 'bad');
+    persistView_();
+    show('home');
+  } catch (e) { fail(e, 'hmsg'); }
+}
+$('pendList').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-a]');
+  if (!b) return;
+  b.disabled = true;
+  try { await call('reviewRegistration', S.token, b.dataset.b, b.dataset.a); await goHome(); }
+  catch (err) { b.disabled = false; fail(err, 'pmsg'); }
+});
+
+/* ---------- reading the uploaded files ---------- */
+const norm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
+const num = v => typeof v === 'number' ? v : (parseFloat(String(v).replace(/,/g, '')) || 0);
+function pDate(v) {
+  if (v instanceof Date) return isNaN(v) ? '' : v.getFullYear() + '-' + p2(v.getMonth() + 1) + '-' + p2(v.getDate());
+  if (typeof v === 'number') return v < 1 ? '' : new Date((Math.floor(v) - 25569) * 864e5).toISOString().slice(0, 10);
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (m) return m[1] + '-' + p2(m[2]) + '-' + p2(m[3]);
+  m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if (m) return m[3] + '-' + p2(m[2]) + '-' + p2(m[1]);
+  const d = new Date(s);
+  return isNaN(d) ? '' : d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+}
+function pTime(v) {
+  if (v instanceof Date) return isNaN(v) ? '' : p2(v.getHours()) + ':' + p2(v.getMinutes()) + ':' + p2(v.getSeconds());
+  if (typeof v === 'number') {
+    const t = Math.round((v - Math.floor(v)) * 86400) % 86400;
+    return p2(Math.floor(t / 3600)) + ':' + p2(Math.floor(t % 3600 / 60)) + ':' + p2(t % 60);
+  }
+  const m = String(v == null ? '' : v).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  return m ? p2(m[1]) + ':' + m[2] + ':' + (m[3] || '00') : '';
+}
+function parseWorkbook(wb, name) {
+  let found = null, missing = NEED;
+  for (const sn of wb.SheetNames) {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header: 1, raw: true, defval: ''});
+    for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+      const hm = {};
+      aoa[i].forEach((h, j) => { const k = norm(h); if (k && !(k in hm)) hm[k] = j; });
+      const idx = NEED.map(n => hm[norm(n)]);
+      const miss = NEED.filter((n, x) => idx[x] === undefined);
+      if (!miss.length) { found = {aoa, i, idx, oid: hm[norm('Membership ID')]}; break; }
+      if (miss.length < missing.length) missing = miss;
+    }
+    if (found) break;
+  }
+  if (!found) throw new Error(name + ': missing columns: ' + missing.join(', '));
+  const rows = []; let skipped = 0, noTime = 0, min = '', max = '';
+  for (let r = found.i + 1; r < found.aoa.length; r++) {
+    const a = found.aoa[r], v = found.idx.map(j => a[j]);
+    if (v.every(x => x === '' || x == null)) continue;
+    const rc = String(v[0]).trim(), dt = pDate(v[2]);
+    if (!rc || !dt || dt < '2000-01-01' || dt > '2100-12-31') { skipped++; continue; }
+    const mo = pDate(v[1]), tm = pTime(v[3]);
+    if (!tm) noTime++;
+    rows.push([rc, mo ? mo.slice(0, 7) : String(v[1]).trim(), dt, tm, String(v[4]).trim(), String(v[5]).replace(/\D/g, ''),
+      String(v[6]).trim(), String(v[7]).trim(), num(v[8]), num(v[9]),
+      found.oid === undefined ? '' : String(a[found.oid] == null ? '' : a[found.oid]).trim()]);
+    if (!min || dt < min) min = dt;
+    if (dt > max) max = dt;
+  }
+  return {rows, min, max, skipped, noTime};
+}
+async function parseFile(file) {
+  const csv = /\.csv$/i.test(file.name);
+  const wb = csv ? XLSX.read(await file.text(), {type: 'string', raw: true, dense: true})
+                 : XLSX.read(await file.arrayBuffer(), {type: 'array', dense: true});
+  return parseWorkbook(wb, file.name);
+}
+
+/* ---------- upload and inspection ---------- */
+function goUpload() {
+  $('f1').value = ''; $('f2').value = ''; $('milk').checked = false; note('umsg', '');
+  $('upInfo').textContent = S.lastInvoice ? 'Last invoice date saved previously: ' + S.lastInvoice
+    : 'No data is saved yet for this branch.';
+  show('upload');
+}
+async function inspect() {
+  note('umsg', '');
+  const picks = [['f1','q1'], ['f2','q2']].map(([f, q]) => ({file: $(f).files[0], quarter: $(q).value})).filter(p => p.file);
+  if (!picks.length) return note('umsg', 'Choose at least one file.', 'bad');
+  if (picks.length === 2 && picks[0].quarter === picks[1].quarter) return note('umsg', 'Choose a different quarter for each file.', 'bad');
+  $('go').disabled = true; $('go').textContent = 'Reading files';
+  try {
+    S.files = [];
+    for (const p of picks) { const r = await parseFile(p.file); r.quarter = p.quarter; r.name = p.file.name; S.files.push(r); }
+    renderInspect();
+  } catch (e) { note('umsg', e.message, 'bad'); }
+  finally { $('go').disabled = false; $('go').textContent = 'Inspect files'; }
+}
+function renderInspect() {
+  $('inTb').innerHTML = S.files.map(f => `<tr><td>${esc(f.quarter)}</td><td>${esc(f.name)}</td><td>${f.rows.length.toLocaleString()}</td><td>${f.min || '-'}</td><td>${f.max || '-'}</td><td>${f.skipped}</td></tr>`).join('');
+  const max = S.files.reduce((m, f) => f.max > m ? f.max : m, '');
+  const older = !!S.lastInvoice && max <= S.lastInvoice;
+  const nt = S.files.reduce((a, f) => a + f.noTime, 0);
+  $('inLast').textContent = S.lastInvoice ? 'Last invoice date saved previously: ' + S.lastInvoice : 'No data is saved yet for this branch.';
+  if (older) note('inMsg', `These dates are older than the data already saved (last invoice date saved: ${S.lastInvoice}). The new file cannot be saved.`, 'bad');
+  else note('inMsg', 'Check the dates above, then confirm or revise. Nothing is saved until you confirm.' +
+    (nt ? ` ${nt.toLocaleString()} rows have no valid Trx Time, so purchases of the same customer on the same day are treated as one.` : ''), 'info');
+  $('cf').hidden = older || !S.files.some(f => f.rows.length);
+  show('inspect');
+}
+async function confirmSave() {
+  $('cf').disabled = true; $('cf').textContent = 'Saving';
+  note('inMsg', 'Saving. This can take a minute for large files.', 'info');
+  try {
+    const r = await call('saveUpload', S.token, S.branch, S.files.map(f => ({quarter: f.quarter, name: f.name, rows: f.rows})), $('milk').checked);
+    S.lastInvoice = r.newLast;
+    let h = `<b>Saved for ${esc(r.branch)}:</b> ${r.rowsSaved.toLocaleString()} rows. ` +
+      (r.previousLast ? `Last invoice date saved previously: ${esc(r.previousLast)}. ` : '') +
+      `Last invoice date now: ${esc(r.newLast)}. `;
+    if (r.duplicates) h += `${r.duplicates.toLocaleString()} repeated purchase lines (same phone, item, date and time) were merged. `;
+    if (r.milkKept) h += `${r.milkKept.toLocaleString()} milk rows were kept. `;
+    if (r.removed) {
+      h += `${r.removed.toLocaleString()} rows were removed because their item code is not in the master file.` +
+        `<details><summary>Show the removed item codes</summary><div class="tw"><table><thead><tr><th>Code</th><th>Description</th><th>Rows</th></tr></thead><tbody>` +
+        r.removedCodes.map(c => `<tr><td>${esc(c[0])}</td><td dir="auto">${esc(c[1])}</td><td>${c[2]}</td></tr>`).join('') +
+        `</tbody></table></div></details>`;
+    }
+    goExplore(h);
+  } catch (e) { fail(e, 'inMsg'); }
+  finally { $('cf').disabled = false; $('cf').textContent = 'Confirm and save'; }
+}
+
+/* ---------- delete a period ---------- */
+function goDelete() {
+  $('dFrom').value = S.firstInvoice || ''; $('dTo').value = ''; note('dmsg', ''); $('dGo').hidden = true;
+  $('delInfo').textContent = `Saved invoice dates for ${S.branch}: from ${S.firstInvoice} to ${S.lastInvoice}. Follow up actions and notes are kept.`;
+  show('del');
+}
+async function checkDelete() {
+  note('dmsg', ''); $('dGo').hidden = true;
+  try {
+    const r = await call('deletePeriod', S.token, S.branch, $('dFrom').value, $('dTo').value, true);
+    if (!r.count) return note('dmsg', 'No saved rows fall in this period.', 'info');
+    note('dmsg', `${r.count.toLocaleString()} rows (${r.purchases.toLocaleString()} purchases) from ${$('dFrom').value} to ${$('dTo').value} will be deleted. This cannot be undone.`, 'bad');
+    $('dGo').hidden = false;
+  } catch (e) { fail(e, 'dmsg'); }
+}
+async function doDelete() {
+  $('dGo').disabled = true; $('dGo').textContent = 'Deleting';
+  try {
+    const r = await call('deletePeriod', S.token, S.branch, $('dFrom').value, $('dTo').value, false);
+    await goHome();
+    note('hmsg', `Deleted ${r.deleted.toLocaleString()} rows (${r.purchases.toLocaleString()} purchases). ${r.remaining.toLocaleString()} rows remain.`, 'ok');
+  } catch (e) { fail(e, 'dmsg'); }
+  finally { $('dGo').disabled = false; $('dGo').textContent = 'Delete these rows'; }
+}
+
+/* ---------- explore ---------- */
+function goExplore(bannerHtml) {
+  const t = new Date();
+  S.ym = S.ym || (t.getFullYear() + '-' + p2(t.getMonth() + 1));
+  S.analyticsYm = S.ym;
+  if (!S.sel || S.sel.slice(0,7) !== S.ym) S.sel = S.ym + '-' + p2(t.getDate());
+  S.page = 1; S.rows = []; S.counts = {}; S.explored = false; S.mode = 'date'; S.query = ''; $('q').value = ''; note('qmsg', ''); S.cpage = 0; S.draft = {};
+  $('mn').value = ''; $('mx').value = '';
+  const b = $('exMsg'); b.className = bannerHtml ? 'msg ok' : ''; b.innerHTML = bannerHtml || '';
+  note('fmsg', ''); note('xmsg', ''); $('xopt').hidden = true;
+  $('sum').textContent = 'Choose a date and press Explore.';
+  setPage(1); drawCal(); show('explore'); loadCounts(); loadAnalytics(); persistView_();
+}
+function rangeOk() {
+  const a = $('mn').value, z = $('mx').value;
+  if (a !== '' && z !== '' && Number(a) > Number(z)) { note('fmsg', "From can't be higher than To.", 'bad'); return false; }
+  note('fmsg', ''); return true;
+}
+async function loadCounts() {
+  if (!rangeOk()) return;
+  try { const r = await call('explore', S.token, S.branch, '', $('mn').value, $('mx').value, S.ym); S.counts = r.counts; drawCal(); }
+  catch (e) { fail(e, 'fmsg'); }
+}
+function paintCal(calId, titleId, st) {
+  const [y, m] = st.ym.split('-').map(Number);
+  const first = new Date(y, m - 1, 1).getDay(), n = new Date(y, m, 0).getDate();
+  $(titleId).textContent = new Date(y, m - 1, 1).toLocaleDateString('en-GB', {month: 'long', year: 'numeric'});
+  let h = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<div>${d}</div>`).join('') + '<div></div>'.repeat(first);
+  for (let d = 1; d <= n; d++) {
+    const k = st.ym + '-' + p2(d), c = st.counts[k];
+    h += `<button type="button" class="d${k === st.sel ? ' sel' : ''}" data-k="${k}">${d}${c ? `<i>${c}</i>` : ''}</button>`;
+  }
+  $(calId).innerHTML = h;
+}
+function drawCal() { paintCal('cal', 'mTitle', S); }
+$('cal').addEventListener('click', e => { const b = e.target.closest('.d'); if (b) { S.sel = b.dataset.k; drawCal(); persistView_(); } });
+function shiftMonth(d) {
+  const [y, m] = S.ym.split('-').map(Number), t = new Date(y, m - 1 + d, 1);
+  S.ym = t.getFullYear() + '-' + p2(t.getMonth() + 1); S.analyticsYm = S.ym; S.counts = {}; drawCal(); loadCounts(); loadAnalytics(); persistView_();
+}
+async function doExplore() {
+  if (!rangeOk()) return;
+  $('exBtn').disabled = true;
+  try {
+    const r = await call('explore', S.token, S.branch, S.sel, $('mn').value, $('mx').value, S.ym);
+    S.counts = r.counts; S.rows = r.rows; S.explored = true; S.mode = 'date'; $('q').value = ''; note('qmsg', '');
+    refresh(); persistView_();
+  } catch (e) { fail(e, 'fmsg'); }
+  finally { $('exBtn').disabled = false; }
+}
+// detail row: [name, phone, code, description, quantity, Membership ID, purchase date, due date shown,
+//              complete, time, pre-net value, modified?, calculated due date]
+const R = {NAME: 0, PHONE: 1, CODE: 2, DESC: 3, QTY: 4, MID: 5, LAST: 6, DUE: 7, DONE: 8, TIME: 9, NET: 10, MOD: 11, CALC: 12, ACT: 13, NOTE: 14, UPD: 15, FSTATUS: 16, FSU: 17};
+function groups() {
+  const g = {}, order = [];
+  S.rows.forEach(r => {
+    const k = r[R.PHONE] + '|' + r[R.DUE];
+    let o = g[k];
+    if (!o) { o = g[k] = {name: r[R.NAME], phone: r[R.PHONE], ids: [], last: r[R.LAST], due: r[R.DUE], net: 0, done: true, act: 0, note: '', upd: '', mod: false}; order.push(k); }
+    if (r[R.MID] && o.ids.indexOf(r[R.MID]) < 0) o.ids.push(r[R.MID]);
+    if (r[R.LAST] > o.last) o.last = r[R.LAST];
+    o.net += r[R.NET];
+    if (r[R.MOD]) o.mod = true;
+    if (r[R.UPD] && r[R.UPD] > o.upd) { o.upd = r[R.UPD]; o.act = r[R.ACT]; o.note = r[R.NOTE]; }
+    if (!r[R.DONE]) o.done = false;
+  });
+  return order.map(k => g[k]);
+}
+function colors() {
+  const m = {}; let i = 0;
+  S.rows.forEach(r => { if (!(r[R.PHONE] in m)) m[r[R.PHONE]] = `hsl(${Math.round((i++ * 137.508) % 360)},65%,90%)`; });
+  return m;
+}
+function refresh() {
+  if (S.mode === 'search') {
+    const dues = new Set(S.rows.map(x => x[R.DUE])), n = S.members;
+    $('sum').textContent = S.rows.length
+      ? `${n} customer${n === 1 ? '' : 's'} found for "${S.query}": ${dues.size} due date${dues.size === 1 ? '' : 's'}, ${S.rows.length} line${S.rows.length === 1 ? '' : 's'} (all due dates)`
+      : `No customer found for "${S.query}".`;
+    renderList(); return;
+  }
+  const all = new Set(S.rows.map(x => x[R.PHONE])), pend = new Set(S.rows.filter(x => !x[R.DONE]).map(x => x[R.PHONE]));
+  $('sum').textContent = `${all.size} customer${all.size === 1 ? '' : 's'} due on ${S.sel}, ${pend.size} not complete`;
+  if (pend.size) S.counts[S.sel] = pend.size; else delete S.counts[S.sel];
+  drawCal(); renderList();
+}
+function setPage(p) {
+  S.page = p; ['p1', 'p2', 'p3'].forEach((id, i) => $(id).classList.toggle('on', p === i + 1));
+  if (S.explored) refresh(); else renderList();
+}
+function chk(done, a) {
+  return `<label class="st"><input type="checkbox" class="ck" data-p="${esc(a.p)}" data-d="${esc(a.d)}" data-c="${esc(a.c)}" data-l="${esc(a.l)}" data-t="${esc(a.t)}"${done ? ' checked' : ''}><span>${done ? 'Complete' : 'Incomplete'}</span></label>`;
+}
+function renderList() {
+  $('tbl').hidden = S.page === 3; $('cwrap').hidden = S.page !== 3;
+  if (S.page === 3) { renderCards(); return; }
+  const col = colors(), td = (x, a) => `<td${a || ''}>${esc(x)}</td>`;
+  if (S.page === 1) {
+    $('th').innerHTML = ['Loyalty Name','Loyalty Phone','Membership ID','Last Purchase Day','Due Date','Sum Pre-Net Value','Actions','Notes','Status'].map(x => `<th>${x}</th>`).join('');
+    $('tb').innerHTML = groups().map(g => `<tr style="background:${col[g.phone]}">${td(g.name, ' dir="auto"')}${td(g.phone)}${td(g.ids.join(', '))}${td(g.last)}${td(g.due)}${td((Math.round(g.net * 100) / 100).toFixed(2))}${td(g.act ? ACTIONS[g.act - 1] : '', ' class="wrap"')}${td(g.note, ' class="wrap" dir="auto"')}<td>${chk(g.done, {p: g.phone, d: g.due, c: '*', l: '', t: ''})}</td></tr>`).join('');
+  } else {
+    $('th').innerHTML = ['Loyalty Name','Loyalty Phone','Item Code','Item Description','Quantity','Membership ID','Last Purchase Day','Due Date','Status','Change due date'].map(x => `<th>${x}</th>`).join('');
+    $('tb').innerHTML = S.rows.map(r => {
+      const a = `data-p="${esc(r[R.PHONE])}" data-c="${esc(r[R.CODE])}" data-l="${esc(r[R.LAST])}" data-t="${esc(r[R.TIME])}"`;
+      const due = `<td>${esc(r[R.DUE])}${r[R.MOD] ? `<span class="tag" title="Calculated: ${esc(r[R.CALC])}">modified</span>` : ''}</td>`;
+      const edit = `<td><input type="date" class="md" value="${esc(r[R.DUE])}" aria-label="New due date"> <button type="button" class="sm sv" ${a}>Save</button>${r[R.MOD] ? ` <button type="button" class="sm rs" ${a}>Reset</button>` : ''}</td>`;
+      return `<tr style="background:${col[r[R.PHONE]]}">${td(r[R.NAME], ' dir="auto"')}${td(r[R.PHONE])}${td(r[R.CODE])}${td(r[R.DESC], ' class="wrap" dir="auto"')}${td(r[R.QTY])}${td(r[R.MID])}${td(r[R.LAST])}${due}<td>${chk(r[R.FSTATUS] ? r[R.FSTATUS] === 'complete' : r[R.DONE], {p: r[R.PHONE], d: r[R.DUE], c: r[R.CODE], l: r[R.LAST], t: r[R.TIME]})}</td>${edit}</tr>`;
+    }).join('');
+  }
+}
+$('tb').addEventListener('change', async e => {
+  const box = e.target.closest('.ck');
+  if (!box) return;
+  const done = box.checked, p = box.dataset.p, d = box.dataset.d, code = box.dataset.c, l = box.dataset.l, t = box.dataset.t;
+  box.disabled = true;
+  try {
+    await call('setStatus', S.token, S.branch, p, d, code, l, t, done);
+    S.rows.forEach(r => { if (r[R.PHONE] === p && r[R.DUE] === d && (code === '*' || (r[R.CODE] === code && r[R.LAST] === l && r[R.TIME] === t))) r[R.DONE] = done; });
+    refresh();
+  } catch (err) { box.checked = !done; box.disabled = false; fail(err, 'fmsg'); }
+});
+$('tb').addEventListener('click', async e => {
+  const b = e.target.closest('button.sv, button.rs');
+  if (!b) return;
+  const reset = b.classList.contains('rs'), nd = reset ? '' : b.parentNode.querySelector('.md').value;
+  if (!reset && !nd) return note('fmsg', 'Pick a date first.', 'bad');
+  b.disabled = true;
+  try {
+    await call('setModifiedDue', S.token, S.branch, b.dataset.p, b.dataset.c, b.dataset.l, b.dataset.t, nd);
+    await reloadList();
+  } catch (err) { b.disabled = false; fail(err, 'fmsg'); }
+});
+
+/* ---------- search by Membership ID or mobile number ---------- */
+async function doSearch() {
+  const q = $('q').value.trim();
+  if (q.length < 4) return note('qmsg', 'Type at least 4 characters of the Membership ID or the mobile number.', 'bad');
+  note('qmsg', ''); $('qgo').disabled = true;
+  try {
+    const r = await call('searchMember', S.token, S.branch, q);
+    S.rows = r.rows; S.members = r.members; S.query = q; S.mode = 'search'; S.explored = true; S.page = S.page || 1;
+    mountPortalCards_(); refresh(); show('searchPage');
+  } catch (e) { fail(e, 'qmsg'); }
+  finally { $('qgo').disabled = false; }
+}
+function clearSearch() {
+  $('q').value = ''; note('qmsg', '');
+  if (S.mode === 'search') {
+    S.mode = 'date'; S.rows = []; S.explored = false; $('sum').textContent = 'Choose a date and press Explore.'; renderList();
+  }
+}
+function reloadList() { return S.mode === 'search' ? doSearch() : doExplore(); }
+
+/* ---------- customer follow up: the cards of the explore screen (third page) ---------- */
+const ACTIONS = ['Customer ineligible for refill', 'Not contacted', 'Contacted with no answer',
+                 'Contacted \u2013 customer approved refill', 'Contacted \u2013 customer rejected refill'];
+const PER_PAGE = 4;
+function cPage(d) { S.cpage = (S.cpage || 0) + d; renderCards(); }
+function renderCards() {
+  const gs = groups(), n = gs.length, pages = Math.max(1, Math.ceil(n / PER_PAGE));
+  S.cpage = Math.max(0, Math.min(S.cpage || 0, pages - 1));
+  const start = S.cpage * PER_PAGE;
+  $('cards').innerHTML = gs.slice(start, start + PER_PAGE).map(g => {
+    const dr = (S.draft || {})[g.phone + '|' + g.due] || {};
+    const act = dr.a !== undefined ? dr.a : g.act, txt = dr.n !== undefined ? dr.n : g.note;
+    const safeName = esc(g.name || 'Customer');
+    const safePhone = esc(g.phone || '-');
+    const safeIds = esc(g.ids.join(', ')) || '-';
+    return `<div class="fc" data-p="${esc(g.phone)}" data-d="${esc(g.due)}" data-name="${safeName}">
+      <div class="fh">
+        <b dir="auto">${safeName}</b>
+        <div class="identity-grid">
+          <div class="identity-item"><span class="lbl">Customer Name</span><span class="val" dir="auto">${safeName}</span></div>
+          <div class="identity-item"><span class="lbl">Phone</span><span class="val">${safePhone}</span></div>
+          <div class="identity-item"><span class="lbl">Member ID</span><span class="val">${safeIds}</span></div>
+        </div>
+        <span class="due-pill">📅 Due: ${esc(g.due)}</span>${g.mod ? '<span class="tag">Modified</span>' : ''}
+      </div>
+      <div class="fb">
+        <div class="action-block">
+          <div class="section-title">Action & Notes</div>
+          <label>Action</label>
+          <select class="fa"><option value="0">Select an action</option>${ACTIONS.map((a, x) => `<option value="${x + 1}"${act === x + 1 ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>
+          <label style="margin-top:9px">Notes</label>
+          <textarea class="fn" rows="3" maxlength="1000" placeholder="Add a note...">${esc(txt)}</textarea>
+          <div class="bar" style="margin-top:9px"><button type="button" class="p sm fs">Save</button><span class="fst"></span></div>
+        </div>
+        <div class="fsec status-block">
+          <div class="bar"><span class="status-label">Status</span><div style="flex:1"></div>
+            <button type="button" class="sm sc${g.done ? ' on' : ''}" data-v="1">✓ Complete</button>
+            <button type="button" class="sm sc${g.done ? '' : ' on'}" data-v="0">Incomplete</button>
+          </div>
+        </div>
+        <div class="fsec">
+          <button type="button" class="wa-btn" data-wa-phone="${esc(g.phone)}" data-wa-name="${esc(g.name)}">💬 Send WhatsApp Message</button>
+          <button type="button" class="sm history-btn" data-mid="${esc(g.ids[0] || '')}" style="width:100%;margin-top:8px" ${g.ids.length ? '' : 'disabled'}>📋 Check Member History</button>
+        </div>
+        <div class="fsec"><div class="section-title">Due Date</div>
+          <div class="bar"><input type="date" class="md" value="${esc(g.due)}"><button type="button" class="sm sd">Change</button>${g.mod ? '<button type="button" class="sm sr">Reset</button>' : ''}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  $('cpager').hidden = pages < 2; $('cpg').textContent = `Page ${S.cpage + 1} of ${pages}`;
+  $('cprev').disabled = S.cpage === 0; $('cnext').disabled = S.cpage >= pages - 1;
+}
+
+/* ---------- Member history ---------- */
+function closeMemberHistory(){ $('historyModal').hidden=true; }
+function historyDate_(x){ return esc(x || '-'); }
+async function openMemberHistory(mid){
+  mid=String(mid||'').trim();
+  if(!mid) return note('fmsg','This customer has no Membership ID.','bad');
+  $('historyTitle').textContent='📋 Check Member History';
+  $('historySubtitle').textContent='Membership ID: '+mid;
+  $('historyContent').innerHTML='<p class="mut">Loading member history…</p>';
+  $('historyModal').hidden=false;
+  try{
+    const result=await call('getMemberHistory',S.token,S.branch,mid);
+    if(!result.invoices.length){ $('historyContent').innerHTML='<p class="mut">No purchase history found for this Membership ID.</p>'; return; }
+    $('historyContent').innerHTML=result.invoices.map((inv,i)=>{
+      const hue=(i*137.508)%360, bg=`hsl(${hue},28%,19%)`;
+      const items=inv.items.map(x=>`<tr><td>${historyDate_(x.code)}</td><td class="wrap" dir="auto">${historyDate_(x.description)}</td><td>${historyDate_(x.quantity)}</td><td>${historyDate_(x.calculatedDueDate)}</td><td>${x.modifiedDueDate?historyDate_(x.modifiedDueDate)+' <span class="tag">Modified</span>':'-'}</td><td>${historyDate_(x.status)}</td></tr>`).join('');
+      return `<section class="history-invoice"><div class="history-head" style="background:${bg}"><b>Invoice ${i+1}</b><span>📅 ${historyDate_(inv.trxDate)} ${historyDate_(inv.trxTime)}</span><span>☎ ${historyDate_(inv.phone)}</span><span>Items: ${inv.items.length}</span></div>${(inv.action||inv.notes)?`<div class="history-note">${inv.action?`<b>Action:</b> ${esc(inv.action)} `:''}${inv.notes?`<br><b>Notes:</b> ${esc(inv.notes)}`:''}</div>`:''}<div class="tw"><table class="history-table"><thead><tr><th>Item Code</th><th>Description</th><th>Quantity</th><th>Calculated Due Date</th><th>Modified Due Date</th><th>Status</th></tr></thead><tbody>${items}</tbody></table></div></section>`;
+    }).join('');
+  }catch(e){ $('historyContent').innerHTML=`<p class="msg bad">${esc(e.message)}</p>`; }
+}
+
+/* ---------- WhatsApp ---------- */
+let WA_PENDING = {phone:'', name:''};
+function normalizeSaudiPhone_(phone) {
+  let p = String(phone || '').replace(/\D/g, '');
+  if (p.startsWith('00')) p = p.slice(2);
+  if (/^05\d{8}$/.test(p)) return '966' + p.slice(1);
+  if (/^5\d{8}$/.test(p)) return '966' + p;
+  if (/^9665\d{8}$/.test(p)) return p;
+  return p;
+}
+function openWhatsAppModal(phone, name) {
+  WA_PENDING = {phone:String(phone || ''), name:String(name || 'Customer')};
+  $('waCustomer').textContent = WA_PENDING.name + (WA_PENDING.phone ? ' • ' + WA_PENDING.phone : '');
+  $('waModal').hidden = false;
+}
+function closeWhatsAppModal() { $('waModal').hidden = true; }
+function sendWhatsApp(lang) {
+  const phone = normalizeSaudiPhone_(WA_PENDING.phone);
+  if (!phone) { closeWhatsAppModal(); return note('fmsg', 'This customer does not have a valid phone number.', 'bad'); }
+  const name = WA_PENDING.name || 'Customer';
+  const message = lang === 'ar'
+    ? `عميلنا العزيز "${name}"،\n\nحان الآن موعد إعادة صرف الأدوية المزمنة الخاصة بكم.\nفي حال الرغبة بالتكرار ورفع طلب لشركة التأمين، برجاء التأكيد بـ "نعم" ليتم رفع الطلب.\n\nقدامكم العافية.`
+    : `Dear "${name}",\n\nIt is now time to refill your chronic medications.\nIf you would like to repeat the medications and submit a request to your insurance company, please reply "Yes" so we can submit the request.\n\nWishing you good health.`;
+  const url = 'https://wa.me/' + phone + '?text=' + encodeURIComponent(message);
+  closeWhatsAppModal();
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+$('waModal').addEventListener('click', e => { if (e.target === $('waModal')) closeWhatsAppModal(); });
+$('cards').addEventListener('click', e => { const w = e.target.closest('.wa-btn'); if (w) openWhatsAppModal(w.dataset.waPhone || '', w.dataset.waName || 'Customer'); const h=e.target.closest('.history-btn'); if(h) openMemberHistory(h.dataset.mid || ''); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('waModal').hidden) closeWhatsAppModal(); if(e.key==='Escape' && !$('historyModal').hidden) closeMemberHistory(); });
+$('historyModal').addEventListener('click',e=>{if(e.target===$('historyModal'))closeMemberHistory();});
+
+$('cards').addEventListener('input', e => {
+  const card = e.target.closest('.fc');
+  if (!card) return;
+  S.draft = S.draft || {};
+  S.draft[card.dataset.p + '|' + card.dataset.d] = {a: +card.querySelector('.fa').value, n: card.querySelector('.fn').value};
+});
+$('cards').addEventListener('click', async e => {
+  const b = e.target.closest('button.fs, button.sc, button.sd, button.sr');
+  if (!b) return;
+  const card = b.closest('.fc'), p = card.dataset.p, d = card.dataset.d, st = card.querySelector('.fst');
+  const say = (t, cls) => { st.className = 'fst ' + (cls || ''); st.textContent = t; };
+  const mine = r => r[R.PHONE] === p && r[R.DUE] === d;
+  b.disabled = true; say('');
+  try {
+    if (b.classList.contains('fs')) {
+      const a = +card.querySelector('.fa').value, n = card.querySelector('.fn').value;
+      if (!a && !n.trim()) { say('Choose an action or write a note.', 'bad-t'); return; }
+      await call('saveFollow', S.token, S.branch, p, d, a, n);
+      const stamp = new Date().toISOString().slice(0, 19);
+      S.rows.forEach(r => { if (mine(r)) { r[R.ACT] = a; r[R.NOTE] = n; r[R.UPD] = stamp; } });
+      delete S.draft[p + '|' + d]; say('Saved', 'ok-t');
+    } else if (b.classList.contains('sc')) {
+      const done = b.dataset.v === '1';
+      await call('setStatus', S.token, S.branch, p, d, '*', '', '', done);
+      S.rows.forEach(r => { if (mine(r)) r[R.DONE] = done; });
+      refresh();
+    } else {
+      const nd = b.classList.contains('sr') ? '' : card.querySelector('.md').value;
+      if (b.classList.contains('sd') && !nd) { say('Pick a date first.', 'bad-t'); return; }
+      await call('setGroupDue', S.token, S.branch, p, d, nd);
+      await reloadList();
+    }
+  } catch (err) {
+    if (/Session expired/.test(err.message)) return fail(err, 'fmsg');
+    say(err.message, 'bad-t');
+  } finally { b.disabled = false; }
+});
+
+/* ---------- monthly analytics ---------- */
+function populateExportActions_() {
+  const a = $('xAct'); if (!a || a.options.length > 1) return;
+  const names = ['Customer ineligible for refill','Not contacted','Contacted with no answer','Contacted – customer approved refill','Contacted – customer rejected refill'];
+  a.innerHTML = '<option value="all">All selections</option>' + names.map((x,i)=>`<option value="${i+1}">${esc(x)}</option>`).join('');
+}
+function renderAnalytics_(r) {
+  S.analytics = r;
+  const dt = new Date(Number(r.month.slice(0,4)),Number(r.month.slice(5,7))-1,1);
+  $('aMonthTitle').textContent = dt.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  const total = Number(r.total)||0, complete = Number(r.complete)||0, approved = Number(r.approved)||0;
+  const totalValue = Number(r.totalValue)||0, approvedValue = Number(r.approvedValue)||0;
+  const pct = (a,b) => b ? Math.max(0, Math.min(100, Math.round(a*1000/b)/10)) : 0;
+  const cards = [
+    {label:'Complete vs Total', value:complete, total:total, percent:pct(complete,total), text:`${complete.toLocaleString()} / ${total.toLocaleString()}`},
+    {label:'Approved vs Total', value:approved, total:total, percent:pct(approved,total), text:`${approved.toLocaleString()} / ${total.toLocaleString()}`},
+    {label:'Approved Value vs Total Value', value:approvedValue, total:totalValue, percent:pct(approvedValue,totalValue), text:`${approvedValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} / ${totalValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}
+  ];
+  $('aChart').innerHTML = `<div class="analyticsDark" style="grid-column:1/-1"><div class="gaugeGrid">${cards.map(x => `<div class="monthGauge"><div class="gaugeRing" style="--pct:${x.percent};--gauge-color:#4fb28f;--gauge-track:#26352f"><span class="gaugeValue">${x.percent}%</span></div><div><div class="gaugeLabel">${x.label}</div><div class="gaugePct">${x.percent}%</div><div class="gaugeNumbers"><strong>${x.text}</strong></div></div></div>`).join('')}</div></div>`;
+  const a = r.actions || {};
+  $('aActions').textContent = `Ineligible ${a[1]||0} · Not contacted ${a[2]||0} · No answer ${a[3]||0} · Approved ${a[4]||0} · Rejected ${a[5]||0}`;
+}
+async function loadAnalytics() {
+  if (!S.analyticsYm) return;
+  try { const r = await call('monthlyAnalytics', S.token, S.branch, S.analyticsYm); renderAnalytics_(r); } catch(e) { fail(e,'exMsg'); }
+}
+function shiftAnalyticsMonth(d) {
+  const [y,m] = S.analyticsYm.split('-').map(Number), t = new Date(y,m-1+d,1);
+  S.analyticsYm = t.getFullYear() + '-' + p2(t.getMonth()+1); S.ym=S.analyticsYm; if(!S.sel||S.sel.slice(0,7)!==S.ym) S.sel=S.ym+'-01'; drawCal(); loadCounts(); loadAnalytics(); persistView_();
+}
+
+/* ---------- export ---------- */
+function openExport(fmt) {
+  S.xfmt = fmt; $('xFrom').value = S.sel; $('xTo').value = S.sel; $('xSt').value = 'all'; populateExportActions_(); $('xAct').value = 'all';
+  note('xmsg', ''); $('xopt').hidden = false;
+}
+async function doExport() {
+  if (!rangeOk()) return;
+  const f = $('xFrom').value, t = $('xTo').value;
+  if (!f || !t || f > t) return note('xmsg', 'Choose a valid period: From must not be after To.', 'bad');
+  $('xGo').disabled = true;
+  note('xmsg', 'Preparing the ' + (S.xfmt === 'pdf' ? 'PDF' : 'Excel') + ' file.', 'info');
+  try {
+    const r = await call('exportDue', S.token, S.branch, f, t, $('xSt').value, $('mn').value, $('mx').value,
+      S.page === 2 ? 'details' : 'summary', S.xfmt, $('xAct').value);
+    const bin = atob(r.b64), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([u8], {type: r.mime})); a.download = r.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    note('xmsg', 'Downloaded ' + r.name, 'ok'); $('xopt').hidden = true;
+  } catch (e) { fail(e, 'xmsg'); }
+  finally { $('xGo').disabled = false; }
+}
+
+mountPortalCards_();
+setRole('user');
+if (!openResetFromUrl()) restoreSession_();
+</script>
+</body>
+</html>
