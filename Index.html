@@ -773,7 +773,7 @@ async function doExplore() {
   finally { $('exBtn').disabled = false; }
 }
 // Detail row includes transaction-level Follow Up snapshot metadata after index 17.
-const R = {NAME:0, PHONE:1, CODE:2, DESC:3, QTY:4, MID:5, LAST:6, DUE:7, DONE:8, TIME:9, NET:10, MOD:11, CALC:12, ACT:13, NOTE:14, UPD:15, FSTATUS:16, FSU:17, FOLLOW_ROW:18, SNAP_STATUS:19, SNAP_STATUS_UPDATED:20, SNAP_MOD_DUE:21, SNAP_MOD_DATE:22, TRX_DATE:23, SNAP_PROOF:24};
+const R = {NAME:0, PHONE:1, CODE:2, DESC:3, QTY:4, MID:5, LAST:6, DUE:7, DONE:8, TIME:9, NET:10, MOD:11, CALC:12, ACT:13, NOTE:14, UPD:15, FSTATUS:16, FSU:17, FOLLOW_ROW:18, SNAP_STATUS:19, SNAP_STATUS_UPDATED:20, SNAP_MOD_DUE:21, SNAP_MOD_DATE:22, TRX_DATE:23, SNAP_PROOF:24, LINE_FOLLOW_ROW:25, LINE_PROOF:26};
 function snapshotTransactionsFor_(phone, due) {
   const map = Object.create(null);
   S.rows.forEach(r => {
@@ -791,6 +791,33 @@ function snapshotTransactionsFor_(phone, due) {
     if (r[R.MID] && !t.membershipIds.includes(r[R.MID])) t.membershipIds.push(r[R.MID]);
   });
   return Object.keys(map).sort().map(k => map[k]);
+}
+function snapshotStatusTargetsFor_(phone, due, code, trxDate, trxTime) {
+  const out = [];
+  S.rows.forEach(r => {
+    if (r[R.PHONE] !== phone || r[R.DUE] !== due) return;
+    if (code !== '*' && !(r[R.CODE] === code && r[R.TRX_DATE] === trxDate && r[R.TIME] === trxTime)) return;
+    out.push({
+      date: String(r[R.TRX_DATE] || ''), time: String(r[R.TIME] || ''),
+      code: String(r[R.CODE] || ''), membershipId: String(r[R.MID] || ''),
+      followRow: Number(r[R.LINE_FOLLOW_ROW]) || 0, proof: String(r[R.LINE_PROOF] || '')
+    });
+  });
+  return out;
+}
+function applySnapshotStatusSave_(saved, complete) {
+  const map = Object.create(null);
+  (saved || []).forEach(x => { map[[x.date,x.time,x.membershipId,x.code].join('|')] = x; });
+  S.rows.forEach(r => {
+    const x = map[[r[R.TRX_DATE],r[R.TIME],r[R.MID],r[R.CODE]].join('|')];
+    if (!x) return;
+    r[R.DONE] = !!complete;
+    r[R.FSTATUS] = complete ? 'complete' : 'incomplete';
+    r[R.SNAP_STATUS] = r[R.FSTATUS];
+    r[R.SNAP_STATUS_UPDATED] = new Date().toISOString();
+    r[R.LINE_FOLLOW_ROW] = Number(x.followRow) || 0;
+    r[R.LINE_PROOF] = x.proof || '';
+  });
 }
 function applyFollowSnapshotSave_(phone, due, action, notes, saved) {
   const byKey = Object.create(null);
@@ -874,8 +901,9 @@ $('tb').addEventListener('change', async e => {
   const done = box.checked, p = box.dataset.p, d = box.dataset.d, code = box.dataset.c, l = box.dataset.l, t = box.dataset.t;
   box.disabled = true;
   try {
-    await call('setStatus', S.token, S.branch, p, d, code, l, t, done);
-    S.rows.forEach(r => { if (r[R.PHONE] === p && r[R.DUE] === d && (code === '*' || (r[R.CODE] === code && r[R.LAST] === l && r[R.TIME] === t))) r[R.DONE] = done; });
+    const targets = snapshotStatusTargetsFor_(p, d, code, l, t);
+    const result = await call('setStatus', S.token, S.branch, p, d, code, l, t, done, targets);
+    applySnapshotStatusSave_(result.saved || [], done);
     refresh();
   } catch (err) { box.checked = !done; box.disabled = false; fail(err, 'fmsg'); }
 });
@@ -1041,8 +1069,9 @@ $('cards').addEventListener('click', async e => {
       if (freshCard) { const freshStatus = freshCard.querySelector('.fst'); freshStatus.className = 'fst ok-t'; freshStatus.textContent = 'Saved'; }
     } else if (b.classList.contains('sc')) {
       const done = b.dataset.v === '1';
-      await call('setStatus', S.token, S.branch, p, d, '*', '', '', done);
-      S.rows.forEach(r => { if (mine(r)) r[R.DONE] = done; });
+      const targets = snapshotStatusTargetsFor_(p, d, '*', '', '');
+      const result = await call('setStatus', S.token, S.branch, p, d, '*', '', '', done, targets);
+      applySnapshotStatusSave_(result.saved || [], done);
       refresh();
     } else {
       const nd = b.classList.contains('sr') ? '' : card.querySelector('.md').value;
