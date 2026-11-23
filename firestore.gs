@@ -418,7 +418,6 @@ function firestoreReadExploreSnapshotLegacyP0661_() {
 
 // Kept as compatibility wrappers for any other existing callers.
 function firestoreReadBranchRowsP0661_() { return firestoreReadExploreSnapshotLegacyP0661_().rows; }
-function firestoreReadFollowMapP0661_() { return firestoreReadExploreSnapshotLegacyP0661_().follow; }
 
 function firestoreSyncAffectedP0661_(rows) {
   firestoreAssertTestTarget_();
