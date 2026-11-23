@@ -115,3 +115,13 @@ The following source changes have been committed to `optimize-save-notes-status`
 6. Record actual cold/warm timings, Firestore document counts, and Sheets reads before making any performance claim.
 
 Do not run `firestoreInitialSyncP0661()`, install the trigger, or deploy until the user explicitly authorizes the relevant test operation.
+
+
+### Isolated verification completed
+
+- JavaScript syntax parsing passed for `code.gs`, `firestore.gs`, and `firestore_reliability.gs`.
+- The pure helper self-test passed all 7 assertions.
+- An in-memory queue simulation verified pending-job coalescing, a simulated Firestore failure returning the job to pending with attempt count 1, and a later retry marking it complete.
+- An in-memory snapshot simulation verified cold read from Firestore, warm read from cache, and full rebuild after a cache chunk is missing.
+- An in-memory pending-sync simulation verified Explore selects the Sheets fallback without querying Firestore.
+- These are isolated/mock checks only. They do not establish live Apps Script, Firestore REST query, trigger, authorization, or real performance behavior.
