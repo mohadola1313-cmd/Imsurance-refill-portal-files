@@ -414,9 +414,9 @@ function saveUpload(token, branch, files, keepMilk) {
     }
     writeBranch_(b, finalRows);
     applyAutomaticRefillCompletion_(b, finalRows);
-    // Firestore is a read model: enqueue above, then let the retry worker reconcile
-    // after this save releases its lock. Do not make the user wait for Firestore here.
-
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
     return { branch: b, previousLast: previousLast, newLast: lastDate_(finalRows), rowsSaved: finalRows.length,
              removed: removed, removedCodes: removedCodes, duplicates: duplicates, milkKept: milkKept };
   } finally {
@@ -875,9 +875,8 @@ function saveFollow(token, branch, phone, due, actionIdx, notes) {
     }
     writeFollowChanges_(sh, vals, oldCount, changedIndexes);
     duplicateTransactionRows.sort(function(a,c){return c-a;}).forEach(function(rowNo){sh.deleteRow(rowNo);});
-    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
-      firestoreProcessPendingLockedP0661_();
-    }
+    // Firestore is a read model: enqueue above, then let the retry worker reconcile
+    // after this save releases its lock. Do not make the user wait for Firestore here.
     return keys.length;
   } finally {
     lock.releaseLock();
