@@ -407,9 +407,16 @@ function saveUpload(token, branch, files, keepMilk) {
 
     // 5. per purchase: average qt, net value sum, due date (milk rule or average qt rule)
     const finalRows = calc_(merged, done, mods, milk);
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      const changedKeys = firestoreChangedTransactionKeysP0661_(saved, finalRows)
+        .concat(firestoreAutomaticAffectedTransactionKeysP0661_(finalRows));
+      firestoreQueueEnqueueTransactionsP0661_(changedKeys, 'upload');
+    }
     writeBranch_(b, finalRows);
     applyAutomaticRefillCompletion_(b, finalRows);
-    if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_(finalRows);
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
 
     return { branch: b, previousLast: previousLast, newLast: lastDate_(finalRows), rowsSaved: finalRows.length,
              removed: removed, removedCodes: removedCodes, duplicates: duplicates, milkKept: milkKept };
@@ -434,8 +441,13 @@ function deletePeriod(token, branch, from, to, dryRun) {
     if (!gone.length) throw new Error('No saved rows fall in this period.');
     const keep = rows.filter(function (r) { return !inside(r); }).map(base_);
     const finalRows = calc_(keep, doneMap_(rows), modMap_(rows), milkCodes_());
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(gone.map(fkey_), 'delete');
+    }
     writeBranch_(b, finalRows);
-    if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') firestoreSyncAffectedP0661_(finalRows);
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
     return { deleted: gone.length, purchases: nPurchases, remaining: finalRows.length, lastInvoice: lastDate_(finalRows) };
   } finally {
     lock.releaseLock();
@@ -446,6 +458,7 @@ function deletePeriod(token, branch, from, to, dryRun) {
 
 function explore(token, branch, date, min, max, ym) {
   const b = branchOf_(token, branch);
+  const mon = String(ym || date || '').slice(0, 7);
   let exploreRows, follow;
 
   // FAST PATH: for the approved P0661 test branch, Firestore is the read model.
@@ -457,9 +470,15 @@ function explore(token, branch, date, min, max, ym) {
     PropertiesService.getScriptProperties().getProperty('FIRESTORE_INDEX_P0661_READY') === '1';
 
   if (firestoreReady) {
-    const snapshot = firestoreReadExploreSnapshotP0661_();
-    exploreRows = snapshot.rows;
-    follow = snapshot.follow;
+    const snapshot = firestoreReadExploreSnapshotP0661_(mon);
+    if (snapshot) {
+      exploreRows = snapshot.rows;
+      follow = snapshot.follow;
+    } else {
+      const rows = readBranch_(b);
+      exploreRows = rows;
+      follow = followMap_(b);
+    }
   } else {
     // Compatibility path for other branches, or P0661 before its first index build.
     const rows = readBranch_(b);
@@ -472,7 +491,6 @@ function explore(token, branch, date, min, max, ym) {
 
   const lo = (min === '' || min == null) ? -Infinity : Number(min);
   const hi = (max === '' || max == null) ? Infinity : Number(max);
-  const mon = String(ym || date || '').slice(0, 7);
   const recs = date ? follow : {};
   const perDay = {}, list = [];
   exploreRows.forEach(function (r) {
@@ -571,49 +589,70 @@ function upsertFollowState_(b, phone, due, tdate, ttime, code, membershipId, pat
 }
 
 function setStatus(token, branch, phone, due, code, tdate, ttime, complete) {
-  const b=branchOf_(token,branch), rows=readBranch_(b);
-  const targets=rows.filter(function(r){return r[I.PHONE]===phone && eff_(r)===due && (code==='*'||(r[I.CODE]===code&&r[I.DATE]===tdate&&r[I.TIME]===ttime));});
-  if(!targets.length) throw new Error('This row was not found. Explore again and retry.');
-  upsertFollowStatesBatch_(targets.map(function(r){return {b:b,phone:phone,due:due,tdate:r[I.DATE],ttime:r[I.TIME],code:r[I.CODE],membershipId:r[I.MID],patch:{status:complete?'complete':'incomplete'}};}));
-  // Preserve the established automatic replacement rule at write time, rather than
-  // depending on the next Explore visit to repair an older purchase line.
-  const auto = applyAutomaticRefillCompletion_(b, rows);
-  if (b === 'P0661' && typeof firestoreSyncTransactionsP0661_ === 'function') {
-    // Expand each changed transaction to all its item lines from the same branch snapshot.
-    const txKeys = Object.create(null);
-    targets.concat(auto && auto.rows ? auto.rows : []).forEach(function(r){ txKeys[fkey_(r)] = true; });
-    const syncRows = rows.filter(function(r){ return !!txKeys[fkey_(r)]; });
-    firestoreSyncTransactionsP0661_(syncRows);
+  const b=branchOf_(token,branch), lock=LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const rows=readBranch_(b);
+    const targets=rows.filter(function(r){return r[I.PHONE]===phone && eff_(r)===due && (code==='*'||(r[I.CODE]===code&&r[I.DATE]===tdate&&r[I.TIME]===ttime));});
+    if(!targets.length) throw new Error('This row was not found. Explore again and retry.');
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      const keys=targets.map(fkey_).concat(firestoreAutomaticAffectedTransactionKeysP0661_(rows));
+      firestoreQueueEnqueueTransactionsP0661_(keys,'status');
+    }
+    upsertFollowStatesBatch_(targets.map(function(r){return {b:b,phone:phone,due:due,tdate:r[I.DATE],ttime:r[I.TIME],code:r[I.CODE],membershipId:r[I.MID],patch:{status:complete?'complete':'incomplete'}};}));
+    // Preserve automatic replacement behavior at write time.
+    applyAutomaticRefillCompletion_(b, rows);
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
+    return targets.length;
+  } finally {
+    lock.releaseLock();
   }
-  return targets.length;
 }
 
 function setModifiedDue(token, branch, phone, code, tdate, ttime, newDate) {
-  const b=branchOf_(token,branch); newDate=String(newDate||'');
+  const b=branchOf_(token,branch), lock=LockService.getScriptLock();
+  newDate=String(newDate||'');
   if(newDate&&!isDate_(newDate)) throw new Error('Choose a valid date.');
-  const rows=readBranch_(b), r=rows.find(function(x){return x[I.PHONE]===phone&&x[I.CODE]===code&&x[I.DATE]===tdate&&x[I.TIME]===ttime;});
-  if(!r) throw new Error('This line was not found. Explore again and retry.');
-  const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE];
-  upsertFollowState_(b,phone,effective,tdate,ttime,code,r[I.MID],{mod:value});
-  if (b === 'P0661' && typeof firestoreSyncTransactionsP0661_ === 'function') {
-    firestoreSyncTransactionsP0661_(rows.filter(function(x){ return fkey_(x) === fkey_(r); }));
+  lock.waitLock(30000);
+  try {
+    const rows=readBranch_(b), r=rows.find(function(x){return x[I.PHONE]===phone&&x[I.CODE]===code&&x[I.DATE]===tdate&&x[I.TIME]===ttime;});
+    if(!r) throw new Error('This line was not found. Explore again and retry.');
+    const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE];
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_([fkey_(r)],'modified-due');
+    }
+    upsertFollowState_(b,phone,effective,tdate,ttime,code,r[I.MID],{mod:value});
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
+    return effective;
+  } finally {
+    lock.releaseLock();
   }
-  return effective;
 }
 
 function setGroupDue(token, branch, phone, due, newDate) {
-  const b=branchOf_(token,branch); newDate=String(newDate||'');
+  const b=branchOf_(token,branch), lock=LockService.getScriptLock();
+  newDate=String(newDate||'');
   if(newDate&&!isDate_(newDate)) throw new Error('Choose a valid date.');
-  const sourceRows=readBranch_(b);
-  const rows=sourceRows.filter(function(r){return r[I.PHONE]===phone&&eff_(r)===due;});
-  if(!rows.length) throw new Error('This customer is no longer due on that date. Explore again.');
-  rows.forEach(function(r){const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE]; upsertFollowState_(b,phone,effective,r[I.DATE],r[I.TIME],r[I.CODE],r[I.MID],{mod:value});});
-  if (b === 'P0661' && typeof firestoreSyncTransactionsP0661_ === 'function') {
-    const txKeys=Object.create(null);
-    rows.forEach(function(r){txKeys[fkey_(r)]=true;});
-    firestoreSyncTransactionsP0661_(sourceRows.filter(function(r){return !!txKeys[fkey_(r)];}));
+  lock.waitLock(30000);
+  try {
+    const sourceRows=readBranch_(b);
+    const rows=sourceRows.filter(function(r){return r[I.PHONE]===phone&&eff_(r)===due;});
+    if(!rows.length) throw new Error('This customer is no longer due on that date. Explore again.');
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(rows.map(fkey_),'group-modified-due');
+    }
+    rows.forEach(function(r){const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE]; upsertFollowState_(b,phone,effective,r[I.DATE],r[I.TIME],r[I.CODE],r[I.MID],{mod:value});});
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
+    }
+    return rows.length;
+  } finally {
+    lock.releaseLock();
   }
-  return rows.length;
 }
 
 // view: 'summary' (conclusion page, one row per customer and due date) or 'details' (one row per item)
@@ -829,16 +868,16 @@ function saveFollow(token, branch, phone, due, actionIdx, notes) {
         at[key] = nextSheetRow++;
       }
     });
+    const affectedRows = sourceRows.filter(function(r){
+      return r[I.PHONE] === phone && !!purch[r[I.DATE] + '|' + r[I.TIME]];
+    });
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(affectedRows.map(fkey_),'follow-up');
+    }
     writeFollowChanges_(sh, vals, oldCount, changedIndexes);
     duplicateTransactionRows.sort(function(a,c){return c-a;}).forEach(function(rowNo){sh.deleteRow(rowNo);});
-    if (b === 'P0661' && typeof firestoreSyncAffectedP0661_ === 'function') {
-      // Reuse the original branch snapshot; do not read the whole branch again.
-      // Notes/actions are stored at transaction level, so sync every item line
-      // in each selected transaction, including lines with a different due date.
-      const affectedRows = sourceRows.filter(function(r){
-        return r[I.PHONE] === phone && !!purch[r[I.DATE] + '|' + r[I.TIME]];
-      });
-      firestoreSyncTransactionsP0661_(affectedRows);
+    if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
+      firestoreProcessPendingLockedP0661_();
     }
     return keys.length;
   } finally {
