@@ -70,7 +70,10 @@ function firestoreQueueEnqueueTransactionsP0661_(transactionKeys, operation) {
     const ix = pending[key];
     if (ix !== undefined) {
       vals[ix][3] = String(operation || 'upsert');
+      vals[ix][5] = 0;
+      vals[ix][6] = now;
       vals[ix][8] = now;
+      vals[ix][10] = '';
       // A pending job always rebuilds from the latest canonical Sheets state.
       return;
     }
@@ -308,14 +311,28 @@ function firestoreSnapshotCacheKeyP0661_(month,revision,part) {
   return 'ifr:p0661:explore:v'+FIRESTORE_RELIABILITY_P0661.SNAPSHOT_SCHEMA+':r'+revision+':'+month+':'+part;
 }
 
+function firestoreReadCanonicalExploreFallbackP0661_(source) {
+  const lock=LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const branch=FIRESTORE_INDEX_CONFIG.BRANCH;
+    return {rows:readBranch_(branch),follow:followMap_(branch),source:source||'sheets-fallback'};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function firestoreExploreSnapshotStillCurrentP0661_(revision) {
+  const current=Number(PropertiesService.getScriptProperties().getProperty('FIRESTORE_SNAPSHOT_REV_P0661'))||0;
+  return current===revision && !firestoreQueueHasPendingP0661_();
+}
+
 function firestoreReadExploreSnapshotP0661_(month) {
   firestoreAssertIndexReadTarget_();
   const bounds=firestoreExploreMonthBoundsP0661_(month);
   if(!bounds) return null;
   // A pending write makes the Firestore projection potentially stale. Read canonical Sheets instead.
-  if(firestoreQueueHasPendingP0661_()) {
-    return {rows:readBranch_(FIRESTORE_INDEX_CONFIG.BRANCH),follow:followMap_(FIRESTORE_INDEX_CONFIG.BRANCH),source:'sheets-pending-sync'};
-  }
+  if(firestoreQueueHasPendingP0661_()) return firestoreReadCanonicalExploreFallbackP0661_('sheets-pending-sync');
   const props=PropertiesService.getScriptProperties();
   const revision=Number(props.getProperty('FIRESTORE_SNAPSHOT_REV_P0661'))||0;
   const cache=CacheService.getScriptCache();
@@ -334,10 +351,11 @@ function firestoreReadExploreSnapshotP0661_(month) {
           if(!Array.isArray(chunk)){valid=false;break;}
           Array.prototype.push.apply(docs,chunk);
         }
-        if(valid) {
+        if(valid && docs.length===Number(manifest.documents)) {
           const snapshot=firestoreExploreRowsFromDocsP0661_(docs);
           snapshot.source='cache';
-          return snapshot;
+          if(firestoreExploreSnapshotStillCurrentP0661_(revision)) return snapshot;
+          return firestoreReadCanonicalExploreFallbackP0661_('sheets-concurrent-update');
         }
       }
     } catch(e) {
@@ -348,6 +366,9 @@ function firestoreReadExploreSnapshotP0661_(month) {
   const docs=firestoreQueryExploreMonthP0661_(month);
   const snapshot=firestoreExploreRowsFromDocsP0661_(docs);
   snapshot.source='firestore';
+  if(!firestoreExploreSnapshotStillCurrentP0661_(revision)) {
+    return firestoreReadCanonicalExploreFallbackP0661_('sheets-concurrent-update');
+  }
   const chunks=[];let chunk=[],bytes=2;
   docs.forEach(function(doc){
     const item=JSON.stringify(doc),size=Utilities.newBlob(item).getBytes().length+1;
@@ -359,7 +380,7 @@ function firestoreReadExploreSnapshotP0661_(month) {
   if(docs.length===0) chunks.push([]);
   if(chunks.length && chunks.every(function(c){return c!==null;})) {
     chunks.forEach(function(c,i){cache.put(firestoreSnapshotCacheKeyP0661_(month,revision,'part'+i),JSON.stringify(c),FIRESTORE_RELIABILITY_P0661.CACHE_TTL_SECONDS);});
-    cache.put(manifestKey,JSON.stringify({schema:FIRESTORE_RELIABILITY_P0661.SNAPSHOT_SCHEMA,revision:revision,month:month,count:chunks.length,builtAt:new Date().toISOString()}),FIRESTORE_RELIABILITY_P0661.CACHE_TTL_SECONDS);
+    cache.put(manifestKey,JSON.stringify({schema:FIRESTORE_RELIABILITY_P0661.SNAPSHOT_SCHEMA,revision:revision,month:month,count:chunks.length,documents:docs.length,builtAt:new Date().toISOString()}),FIRESTORE_RELIABILITY_P0661.CACHE_TTL_SECONDS);
   }
   return snapshot;
 }
@@ -395,5 +416,5 @@ function firestoreReliabilitySelfTestP0661_() {
     row('0550000000','2026-11-01','09:00:00','M1','A1','incomplete')
   ]);
   assert(alreadyDone.length===0,'already-complete history is not re-queued');
-  return {passed:8,readOnly:true};
+  return {passed:7,readOnly:true};
 }
