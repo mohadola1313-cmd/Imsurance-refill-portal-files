@@ -139,6 +139,23 @@ function firestoreReconcileTransactionP0661_(transactionKey, branchRows) {
   return {transactionId:txId,lines:projection.lines.length,writes:writes.length};
 }
 
+function firestoreQueueCompactP0661_(sh) {
+  const last=sh.getLastRow();
+  if(last<=2001) return 0;
+  const width=FIRESTORE_RELIABILITY_P0661.QUEUE_HEADERS.length;
+  const vals=sh.getRange(2,1,last-1,width).getValues();
+  const cutoff=Date.now()-30*24*60*60*1000;
+  const keep=vals.filter(function(r) {
+    if(s_(r[4])!=='complete') return true;
+    const completed=Date.parse(s_(r[8]))||0;
+    return completed>=cutoff;
+  });
+  if(keep.length===vals.length) return 0;
+  sh.getRange(2,1,last-1,width).clearContent();
+  if(keep.length) sh.getRange(2,1,keep.length,width).setValues(keep);
+  return vals.length-keep.length;
+}
+
 function firestoreProcessPendingLockedP0661_() {
   firestoreReliabilityAssertP0661_();
   if (PropertiesService.getScriptProperties().getProperty('FIRESTORE_INDEX_P0661_READY') !== '1') {
@@ -191,7 +208,8 @@ function firestoreProcessPendingLockedP0661_() {
     firestoreQueueSetRowP0661_(sh,i+2,r);
     processed++;
   }
-  return {processed:processed,changed:changed};
+  const compacted=firestoreQueueCompactP0661_(sh);
+  return {processed:processed,changed:changed,compacted:compacted};
 }
 
 /** Time-driven worker. Safe to run manually for a controlled test after index readiness. */
