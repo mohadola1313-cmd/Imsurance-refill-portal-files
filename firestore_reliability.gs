@@ -57,7 +57,7 @@ function firestoreQueueEnqueueTransactionsP0661_(transactionKeys, operation) {
   const sh = firestoreQueueSheetP0661_();
   const last = sh.getLastRow();
   const vals = last > 1 ? sh.getRange(2,1,last-1,FIRESTORE_RELIABILITY_P0661.QUEUE_HEADERS.length).getValues() : [];
-  const pending = Object.create(null);
+  const pending = Object.create(null), changed = Object.create(null);
   vals.forEach(function(r,i) {
     if (s_(r[1]) === 'P0661' && (s_(r[4]) === 'pending' || s_(r[4]) === 'processing')) {
       pending[s_(r[2])] = i;
@@ -73,14 +73,18 @@ function firestoreQueueEnqueueTransactionsP0661_(transactionKeys, operation) {
       vals[ix][5] = 0;
       vals[ix][6] = now;
       vals[ix][8] = now;
+      vals[ix][9] = '';
       vals[ix][10] = '';
+      changed[ix] = true;
       // A pending job always rebuilds from the latest canonical Sheets state.
       return;
     }
     add.push([Utilities.getUuid(),'P0661',key,String(operation || 'upsert'),'pending',0,
       now,now,now,'','']);
   });
-  if (vals.length) sh.getRange(2,1,vals.length,FIRESTORE_RELIABILITY_P0661.QUEUE_HEADERS.length).setValues(vals);
+  Object.keys(changed).map(Number).sort(function(a,b){return a-b;}).forEach(function(ix) {
+    firestoreQueueSetRowP0661_(sh,ix+2,vals[ix]);
+  });
   if (add.length) sh.getRange(sh.getLastRow()+1,1,add.length,FIRESTORE_RELIABILITY_P0661.QUEUE_HEADERS.length).setValues(add);
   return list.length;
 }
@@ -147,15 +151,19 @@ function firestoreProcessPendingLockedP0661_() {
   const now = Date.now(), nowIso = new Date(now).toISOString();
   const max = FIRESTORE_RELIABILITY_P0661.MAX_JOBS_PER_RUN;
   let processed = 0, changed = false;
+  const eligibleIndexes=[];
+  for(let i=0;i<vals.length;i++) {
+    const r=vals[i],state=s_(r[4]),next=Date.parse(s_(r[6]))||0,lease=Date.parse(s_(r[9]))||0;
+    if(s_(r[1])==='P0661' && (state==='pending'&&next<=now || state==='processing'&&lease<=now)) {
+      eligibleIndexes.push(i);
+      if(eligibleIndexes.length>=max) break;
+    }
+  }
+  if(!eligibleIndexes.length) return {processed:0};
   const branchRows = readBranch_(FIRESTORE_INDEX_CONFIG.BRANCH);
 
-  for (let i=0;i<vals.length && processed<max;i++) {
-    const r = vals[i], state = s_(r[4]), next = Date.parse(s_(r[6])) || 0;
-    const lease = Date.parse(s_(r[9])) || 0;
-    const eligible = state === 'pending' && next <= now ||
-      state === 'processing' && lease <= now;
-    if (s_(r[1]) !== 'P0661' || !eligible) continue;
-
+  for (let j=0;j<eligibleIndexes.length;j++) {
+    const i=eligibleIndexes[j],r=vals[i];
     r[4] = 'processing';
     r[8] = nowIso;
     r[9] = new Date(now + FIRESTORE_RELIABILITY_P0661.LEASE_MINUTES*60000).toISOString();
