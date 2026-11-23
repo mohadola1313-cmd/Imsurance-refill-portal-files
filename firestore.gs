@@ -146,7 +146,10 @@ function firestoreInitialSyncP0661() {
     },
     note: 'Google Sheets remains canonical. Firestore documents are deterministic upserts.'
   };
-  PropertiesService.getScriptProperties().setProperty('FIRESTORE_INDEX_P0661_READY', '1');
+  const indexProps = PropertiesService.getScriptProperties();
+  indexProps.setProperty('FIRESTORE_SNAPSHOT_REV_P0661',
+    String((Number(indexProps.getProperty('FIRESTORE_SNAPSHOT_REV_P0661'))||0)+1));
+  indexProps.setProperty('FIRESTORE_INDEX_P0661_READY', '1');
   Logger.log(JSON.stringify(result));
   return result;
 }
