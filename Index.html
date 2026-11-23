@@ -1037,7 +1037,8 @@ $('cards').addEventListener('click', async e => {
       const snapshot = snapshotTransactionsFor_(p, d);
       const result = await call('saveFollow', S.token, S.branch, p, d, a, n, snapshot);
       applyFollowSnapshotSave_(p, d, a, n, result.saved || []);
-      say('Saved', 'ok-t');
+      const freshCard = Array.from($('cards').querySelectorAll('.fc')).find(x => x.dataset.p === p && x.dataset.d === d);
+      if (freshCard) { const freshStatus = freshCard.querySelector('.fst'); freshStatus.className = 'fst ok-t'; freshStatus.textContent = 'Saved'; }
     } else if (b.classList.contains('sc')) {
       const done = b.dataset.v === '1';
       await call('setStatus', S.token, S.branch, p, d, '*', '', '', done);
