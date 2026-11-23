@@ -893,7 +893,7 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
   const idx = Number(actionIdx) || 0;
   if (idx < 0 || idx > CONFIG.ACTIONS.length) throw new Error('Choose one of the five actions.');
   phone = String(phone || '').trim();
-  notes = String(notes == null ? '' : notes).replace(/\\r/g, '').slice(0, 1000);
+  notes = String(notes == null ? '' : notes).replace(/\r/g, '').slice(0, 1000);
   if (!idx && !notes.trim()) throw new Error('Choose an action or write a note.');
   if (!isDate_(due) || !phone) throw new Error('Choose a valid customer and due date.');
   if (!snapshotTransactions.length || snapshotTransactions.length > 500) throw new Error('The loaded snapshot is empty or invalid. Explore again.');
@@ -901,7 +901,7 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
   const transactions = Object.create(null);
   snapshotTransactions.forEach(function(t) {
     const date = String(t.date || ''), time = String(t.time || ''), rowNo = Number(t.followRow) || 0;
-    if (!isDate_(date) || !/^\\d{2}:\\d{2}:\\d{2}$/.test(time) || !Array.isArray(t.membershipIds) ||
+    if (!isDate_(date) || !/^\d{2}:\d{2}:\d{2}$/.test(time) || !Array.isArray(t.membershipIds) ||
         String(t.proof || '') !== followSnapshotProof_(b, phone, due, date, time, rowNo)) {
       throw new Error('The loaded snapshot contains an invalid transaction. Explore again.');
     }
