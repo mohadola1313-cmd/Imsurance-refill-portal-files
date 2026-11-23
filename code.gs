@@ -1474,7 +1474,7 @@ function migrateBranchState_(b) {
     const code=s_(r[6]);
     const key=phone+'|'+effectiveDue+'|'+date+'|'+time+'|'+code;
     let ix=index[key];
-    if(ix==null){ ix=vals.length; index[key]=ix; vals.push([b,phone,effectiveDue,date,time,s_(r[4]),s_(r[14]),'','','','',legacyStatus==='complete'?'complete':'incomplete',now,legacyMod,now,code]); }
+    if(ix==null){ ix=vals.length; index[key]=ix; vals.push([b,phone,effectiveDue,date,time,s_(r[4]),s_(r[14]),'','','','',legacyStatus==='complete'?'complete':'incomplete',now,legacyMod,now,code,'',legacyStatus==='complete'?'complete':'incomplete']); }
     else {
       if(legacyStatus) vals[ix][11]=legacyStatus==='complete'?'complete':'incomplete';
       if(legacyMod) vals[ix][13]=legacyMod;
