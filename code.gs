@@ -472,7 +472,15 @@ function explore(token, branch, date, min, max, ym) {
     const snapshot = firestoreReadExploreSnapshotP0661_(mon);
     if (snapshot) {
       exploreRows = snapshot.rows;
-      follow = snapshot.follow;
+      // Follow Up is the canonical source for user-entered actions, notes and status.
+      // Read this small overlay fresh so Explore never shows a stale Firestore copy.
+      follow = followMap_(b);
+      exploreRows.forEach(function(r) {
+        const f = follow[flinekey_(r)] || follow[fkey_(r) + '|' + r[I.CODE]] || follow[fkey_(r)];
+        if (!f) return;
+        if (f.status) r[I.ST] = f.status;
+        if (f.mod !== undefined) r[I.MOD] = f.mod;
+      });
     } else {
       const rows = readBranch_(b);
       exploreRows = rows;
@@ -587,8 +595,12 @@ function upsertFollowState_(b, phone, due, tdate, ttime, code, membershipId, pat
   upsertFollowStatesBatch_([{b:b,phone:phone,due:due,tdate:tdate,ttime:ttime,code:code,membershipId:membershipId,patch:patch}]);
 }
 
-function setStatus(token, branch, phone, due, code, tdate, ttime, complete) {
-  const b=branchOf_(token,branch), lock=LockService.getScriptLock();
+function setStatus(token, branch, phone, due, code, tdate, ttime, complete, snapshotTargets) {
+  const b=branchOf_(token,branch);
+  if (Array.isArray(snapshotTargets)) {
+    return setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets);
+  }
+  const lock=LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     const rows=readBranch_(b);
@@ -605,6 +617,77 @@ function setStatus(token, branch, phone, due, code, tdate, ttime, complete) {
       firestoreProcessPendingLockedP0661_();
     }
     return targets.length;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets) {
+  if (!snapshotTargets.length || snapshotTargets.length > 1000) {
+    throw new Error('The loaded status snapshot is empty or invalid. Explore again.');
+  }
+  const phoneKey = String(phone || '');
+  const status = complete ? 'complete' : 'incomplete';
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = followSheet_();
+    const last = sh.getLastRow();
+    const stamp = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
+    const writes = [], queueKeys = [], seen = Object.create(null);
+    let nextRow = Math.max(last + 1, 2);
+    snapshotTargets.forEach(function(t) {
+      const date = String(t.date || ''), time = String(t.time || '');
+      const code = String(t.code || ''), mid = String(t.membershipId || '');
+      let rowNo = Number(t.followRow) || 0;
+      const proof = followSnapshotLineProof_(b, phoneKey, due, date, time, rowNo, mid, code);
+      if (!isDate_(date) || !/^\\d{2}:\\d{2}:\\d{2}$/.test(time) || !code ||
+          String(t.proof || '') !== proof) {
+        throw new Error('The loaded status snapshot is invalid. Explore again.');
+      }
+      const key = [date,time,mid,code].join('|');
+      if (seen[key]) return;
+      seen[key] = true;
+      let row;
+      if (rowNo) {
+        if (rowNo < 2 || rowNo > last) throw new Error('A loaded status record is no longer available. Explore again.');
+        row = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getValues()[0];
+        if (s_(row[0]) !== b || s_(row[1]) !== phoneKey || s_(row[3]) !== date ||
+            s_(row[4]) !== time || s_(row[6]) !== mid || s_(row[15]) !== code) {
+          throw new Error('A loaded status record has changed. Explore again.');
+        }
+        row[2] = due;
+        row[11] = status;
+        row[12] = stamp;
+      } else {
+        rowNo = nextRow++;
+        row = [b, phoneKey, due, date, time, '', mid, '', '', '', '', status, stamp, '', '', code];
+      }
+      writes.push({rowNo:rowNo,row:row,date:date,time:time,code:code,mid:mid});
+      queueKeys.push(phoneKey + '|' + date + '|' + time);
+    });
+    writes.sort(function(a,b){return a.rowNo-b.rowNo;});
+    let start = -1, block = [], previous = -2;
+    function flush() {
+      if (!block.length) return;
+      sh.getRange(start,1,block.length,FOLLOW_COLS).setNumberFormat('@').setValues(block);
+      block = [];
+    }
+    writes.forEach(function(w) {
+      if (w.rowNo !== previous + 1) { flush(); start = w.rowNo; }
+      block.push(w.row);
+      previous = w.rowNo;
+    });
+    flush();
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(queueKeys, 'status');
+    }
+    return {
+      saved: writes.map(function(w) {
+        return {date:w.date,time:w.time,code:w.code,membershipId:w.mid,followRow:w.rowNo,
+          proof:followSnapshotLineProof_(b,phoneKey,due,w.date,w.time,w.rowNo,w.mid,w.code)};
+      })
+    };
   } finally {
     lock.releaseLock();
   }
@@ -1140,6 +1223,17 @@ function getMemberHistory(token, branch, membershipId) {
 }
 
 // Signed Explore snapshot identity: the browser can return the loaded transaction without allowing forged keys.
+function followSnapshotLineProof_(branch, phone, due, date, time, followRow, membershipId, code) {
+  const props = PropertiesService.getScriptProperties();
+  let secret = props.getProperty('FOLLOW_SNAPSHOT_HMAC_SECRET');
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('FOLLOW_SNAPSHOT_HMAC_SECRET', secret);
+  }
+  const payload = [branch, phone, due, date, time, Number(followRow) || 0, membershipId, code].join('\\u001f');
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payload, secret));
+}
+
 function followSnapshotProof_(branch, phone, due, date, time, followRow) {
   const props = PropertiesService.getScriptProperties();
   let secret = props.getProperty('FOLLOW_SNAPSHOT_HMAC_SECRET');
@@ -1157,9 +1251,12 @@ function followSnapshotProof_(branch, phone, due, date, time, followRow) {
 function detail_(r, recs, branch) {
   const baseFollow = recs[fkey_(r)] || {};
   const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
+  const lineFollow = recs[flinekey_(r)] || recs[fkey_(r) + '|' + r[I.CODE]] || {};
+  const lineRow = Number(lineFollow.rowNo) || 0;
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
           f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
-          Number(baseFollow.rowNo) || 0, baseFollow.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), baseFollow.su || '', baseFollow.mod || '', baseFollow.md || '', r[I.DATE], followSnapshotProof_(branch, r[I.PHONE], eff_(r), r[I.DATE], r[I.TIME], Number(baseFollow.rowNo) || 0)];
+          Number(baseFollow.rowNo) || 0, baseFollow.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), baseFollow.su || '', baseFollow.mod || '', baseFollow.md || '', r[I.DATE], followSnapshotProof_(branch, r[I.PHONE], eff_(r), r[I.DATE], r[I.TIME], Number(baseFollow.rowNo) || 0),
+          lineRow, followSnapshotLineProof_(branch, r[I.PHONE], eff_(r), r[I.DATE], r[I.TIME], lineRow, r[I.MID], r[I.CODE)];
 }
 
 /* ================= data helpers ================= */
