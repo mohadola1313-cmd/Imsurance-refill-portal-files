@@ -247,7 +247,7 @@ function firestoreAutomaticAffectedTransactionKeysP0661_(rows) {
 /* ================= Monthly Explore snapshot cache ================= */
 
 function firestoreExploreMonthBoundsP0661_(month) {
-  if (!/^\\d{4}-\\d{2}$/.test(String(month||''))) return null;
+  if (!/^\d{4}-\d{2}$/.test(String(month||''))) return null;
   const p=String(month).split('-'), y=Number(p[0]), m=Number(p[1]);
   if (m<1 || m>12) return null;
   const start=String(month)+'-01';
