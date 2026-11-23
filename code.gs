@@ -1256,7 +1256,7 @@ function detail_(r, recs, branch) {
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
           f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
           Number(baseFollow.rowNo) || 0, baseFollow.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), baseFollow.su || '', baseFollow.mod || '', baseFollow.md || '', r[I.DATE], followSnapshotProof_(branch, r[I.PHONE], eff_(r), r[I.DATE], r[I.TIME], Number(baseFollow.rowNo) || 0),
-          lineRow, followSnapshotLineProof_(branch, r[I.PHONE], eff_(r), r[I.DATE], r[I.TIME], lineRow, r[I.MID], r[I.CODE)];
+          lineRow, followSnapshotLineProof_(branch, r[I.PHONE], eff_(r), r[I.DATE], r[I.TIME], lineRow, r[I.MID], r[I.CODE]];
 }
 
 /* ================= data helpers ================= */
