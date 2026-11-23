@@ -612,8 +612,6 @@ function setStatus(token, branch, phone, due, code, tdate, ttime, complete, snap
       firestoreQueueEnqueueTransactionsP0661_(keys,'status');
     }
     upsertFollowStatesBatch_(targets.map(function(r){return {b:b,phone:phone,due:due,tdate:r[I.DATE],ttime:r[I.TIME],code:r[I.CODE],membershipId:r[I.MID],patch:{status:complete?'complete':'incomplete'}};}));
-    // Preserve automatic replacement behavior at write time.
-    applyAutomaticRefillCompletion_(b, rows);
     if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
       firestoreProcessPendingLockedP0661_();
     }
@@ -1222,9 +1220,7 @@ function getMemberHistory(token, branch, membershipId) {
       PropertiesService.getScriptProperties().getProperty('FIRESTORE_INDEX_P0661_READY') === '1') {
     return firestoreGetMemberHistoryP0661_(mid);
   }
-  let rows = readBranch_(b);
-  applyAutomaticRefillCompletion_(b, rows);
-  rows = readBranch_(b);
+  const rows = readBranch_(b);
   const recs = followMap_(b), grouped = {}, order = [];
   rows.filter(function(r){ return s_(r[I.MID]) === mid; }).forEach(function(r){
     const k = r[I.PHONE] + '|' + r[I.DATE] + '|' + r[I.TIME];
