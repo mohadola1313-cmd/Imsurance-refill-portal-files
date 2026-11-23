@@ -104,7 +104,7 @@ function firestoreQueueSetRowP0661_(sh, rowNumber, row) {
   sh.getRange(rowNumber,1,1,FIRESTORE_RELIABILITY_P0661.QUEUE_HEADERS.length).setValues([row]);
 }
 
-function firestoreReconcileTransactionP0661_(transactionKey, branchRows) {
+function firestoreReconcileTransactionP0661_(transactionKey, branchRows, followSnapshot) {
   firestoreReliabilityAssertP0661_();
   const branch = FIRESTORE_INDEX_CONFIG.BRANCH;
   const txRows = (branchRows || readBranch_(branch)).filter(function(r) { return fkey_(r) === transactionKey; });
@@ -113,7 +113,7 @@ function firestoreReconcileTransactionP0661_(transactionKey, branchRows) {
   const existingMap = Object.create(null);
   existing.forEach(function(x) { existingMap[x.id] = x.data; });
 
-  const projection = txRows.length ? firestoreBuildCurrentProjection_(branch,txRows) : {transactions:[],lines:[]};
+  const projection = txRows.length ? firestoreBuildCurrentProjection_(branch,txRows,followSnapshot) : {transactions:[],lines:[]};
   const desired = Object.create(null), writes = [];
   projection.lines.forEach(function(line) {
     desired[line.id] = true;
@@ -178,6 +178,7 @@ function firestoreProcessPendingLockedP0661_() {
   }
   if(!eligibleIndexes.length) return {processed:0};
   const branchRows = readBranch_(FIRESTORE_INDEX_CONFIG.BRANCH);
+  const followSnapshot = followMap_(FIRESTORE_INDEX_CONFIG.BRANCH);
 
   for (let j=0;j<eligibleIndexes.length;j++) {
     const i=eligibleIndexes[j],r=vals[i];
@@ -187,7 +188,7 @@ function firestoreProcessPendingLockedP0661_() {
     firestoreQueueSetRowP0661_(sh,i+2,r);
     changed = true;
     try {
-      firestoreReconcileTransactionP0661_(s_(r[2]),branchRows);
+      firestoreReconcileTransactionP0661_(s_(r[2]),branchRows,followSnapshot);
       r[4] = 'complete';
       r[8] = new Date().toISOString();
       r[9] = '';
