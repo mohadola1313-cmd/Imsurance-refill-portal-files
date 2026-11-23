@@ -815,8 +815,11 @@ function syncFollowStatuses_(b, rows) {
 
 // Saves the action (1-5, or 0 for none) and the notes of a customer for a due date.
 // One row is kept per purchase process of that customer due on that date.
-function saveFollow(token, branch, phone, due, actionIdx, notes) {
+function saveFollow(token, branch, phone, due, actionIdx, notes, snapshotTransactions) {
   const b = branchOf_(token, branch);
+  if (Array.isArray(snapshotTransactions)) {
+    return saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapshotTransactions);
+  }
   const idx = Number(actionIdx) || 0;
   if (idx < 0 || idx > CONFIG.ACTIONS.length) throw new Error('Choose one of the five actions.');
   notes = String(notes == null ? '' : notes).replace(/\r/g, '').slice(0, 1000);
@@ -883,6 +886,89 @@ function saveFollow(token, branch, phone, due, actionIdx, notes) {
   }
 }
 
+// Snapshot-driven Save Notes. The browser sends the transaction rows already loaded by Explore.
+// Detail row metadata appended by detail_(): [18]=Follow Up sheet row, [19]=status,
+// [20]=status updated, [21]=modified due date, [22]=modified date.
+function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapshotTransactions) {
+  const idx = Number(actionIdx) || 0;
+  if (idx < 0 || idx > CONFIG.ACTIONS.length) throw new Error('Choose one of the five actions.');
+  phone = String(phone || '').replace(/\\D/g, '');
+  notes = String(notes == null ? '' : notes).replace(/\\r/g, '').slice(0, 1000);
+  if (!idx && !notes.trim()) throw new Error('Choose an action or write a note.');
+  if (!isDate_(due) || !phone) throw new Error('Choose a valid customer and due date.');
+  if (!snapshotTransactions.length || snapshotTransactions.length > 500) throw new Error('The loaded snapshot is empty or invalid. Explore again.');
+
+  const transactions = Object.create(null);
+  snapshotTransactions.forEach(function(t) {
+    const date = String(t.date || ''), time = String(t.time || ''), rowNo = Number(t.followRow) || 0;
+    if (!isDate_(date) || !/^\\d{2}:\\d{2}:\\d{2}$/.test(time) || !Array.isArray(t.membershipIds)) {
+      throw new Error('The loaded snapshot contains an invalid transaction. Explore again.');
+    }
+    const key = date + '|' + time;
+    if (transactions[key]) throw new Error('The loaded snapshot contains a duplicate transaction. Explore again.');
+    const ids = t.membershipIds.map(function(v){ return String(v || '').trim(); }).filter(Boolean);
+    transactions[key] = {
+      date: date, time: time, name: String(t.name || '').slice(0,200), ids: ids,
+      followRow: rowNo, status: String(t.status || 'incomplete') === 'complete' ? 'complete' : 'incomplete',
+      statusUpdated: String(t.statusUpdated || ''), modifiedDue: String(t.modifiedDue || ''), modifiedDate: String(t.modifiedDate || '')
+    };
+  });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = followSheet_();
+    const last = sh.getLastRow();
+    const stamp = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
+    const by = sess_(token).id;
+    const action = idx ? CONFIG.ACTIONS[idx - 1] : '';
+    const writes = [], queueKeys = [];
+    Object.keys(transactions).sort().forEach(function(key) {
+      const p = transactions[key];
+      let rowNo = p.followRow;
+      if (rowNo) {
+        if (rowNo < 2 || rowNo > last) throw new Error('The loaded Follow Up record is no longer available. Explore again.');
+        // Validate only the addressed record; do not reload or search the Follow Up sheet.
+        const identity = sh.getRange(rowNo, 1, 1, 5).getDisplayValues()[0].map(String);
+        if (identity[0] !== b || identity[1] !== phone || identity[3] !== p.date || identity[4] !== p.time || identity[15]) {
+          throw new Error('The loaded Follow Up record has changed. Explore again.');
+        }
+      } else {
+        rowNo = Math.max(last + 1, 2);
+      }
+      const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), action, notes, stamp, by,
+        p.status, p.statusUpdated || stamp, p.modifiedDue, p.modifiedDate, ''];
+      writes.push({rowNo:rowNo, row:row});
+      queueKeys.push(phone + '|' + p.date + '|' + p.time);
+    });
+
+    // Write only the affected Follow Up records. New transactions are appended; existing rows are overwritten.
+    writes.sort(function(a,b){return a.rowNo-b.rowNo;});
+    let blockStart = -1, block = [], previous = -2;
+    function flushBlock() {
+      if (!block.length) return;
+      sh.getRange(blockStart, 1, block.length, FOLLOW_COLS).setNumberFormat('@').setValues(block);
+      block = [];
+    }
+    writes.forEach(function(w) {
+      if (w.rowNo !== previous + 1) {
+        flushBlock();
+        blockStart = w.rowNo;
+      }
+      block.push(w.row);
+      previous = w.rowNo;
+    });
+    flushBlock();
+
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(queueKeys, 'follow-up');
+    }
+    return writes.length;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 const FOLLOW_COLS = 16;
 
 // If a later purchase exists for the same Membership ID + Item Code, every older
@@ -936,16 +1022,16 @@ function followMap_(b) {
   const width=Math.max(13,sh.getLastColumn());
   const rows=sh.getRange(2,1,sh.getLastRow()-1,Math.min(width,FOLLOW_COLS)).getValues();
   const base={};
-  rows.forEach(function(r){
+  rows.forEach(function(r,i){
     if(s_(r[0])!==b || s_(r[15])) return;
     const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]);
-    base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14])};
+    base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
   });
   Object.keys(base).forEach(function(k){m[k]=base[k];});
-  rows.forEach(function(r){
+  rows.forEach(function(r,i){
     if(s_(r[0])!==b || !s_(r[15])) return;
     const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]), parent=base[k]||{};
-    const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14])};
+    const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
     const lineEntry=Object.assign({},parent,entry,{a:entry.a||parent.a||0,n:entry.n||parent.n||'',u:entry.u||parent.u||''});
     m[k+'|'+s_(r[6])+'|'+s_(r[15])]=lineEntry;
     if(!s_(r[6])) m[k+'|'+s_(r[15])]=lineEntry;
@@ -1046,7 +1132,8 @@ function getMemberHistory(token, branch, membershipId) {
 function detail_(r, recs) {
   const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || recs[fkey_(r)] || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
-          f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su];
+          f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
+          Number(f.rowNo) || 0, f.status || (r[I.ST] === 'complete' ? 'complete' : 'incomplete'), f.su || '', f.mod || '', f.md || ''];
 }
 
 /* ================= data helpers ================= */
