@@ -641,7 +641,7 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
       const code = String(t.code || ''), mid = String(t.membershipId || '');
       let rowNo = Number(t.followRow) || 0;
       const proof = followSnapshotLineProof_(b, phoneKey, due, date, time, rowNo, mid, code);
-      if (!isDate_(date) || !/^\d{2}:\\d{2}:\\d{2}$/.test(time) || !code ||
+      if (!isDate_(date) || !/^\d{2}:\d{2}:\d{2}$/.test(time) || !code ||
           String(t.proof || '') !== proof) {
         throw new Error('The loaded status snapshot is invalid. Explore again.');
       }
