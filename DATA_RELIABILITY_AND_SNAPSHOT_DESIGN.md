@@ -84,3 +84,34 @@
 - Explore output remains semantically identical to the current behavior.
 - Member History, production data, main branch, and deployments remain untouched in this phase.
 - Performance improvement is claimed only after repeatable measurements.
+
+
+## Implementation progress on the feature branch
+
+The following source changes have been committed to `optimize-save-notes-status`:
+
+- Added `firestore_reliability.gs` with a durable queue sheet named `_Firestore Sync Queue`, transaction-level job coalescing, retry attempts, exponential backoff, processing leases, and a manually installable five-minute worker.
+- Updated P0661 upload, delete, status, modified-due, group-due, and follow-up mutation paths to enqueue affected transaction keys before canonical writes, then attempt immediate bounded processing while holding the existing/new ScriptLock.
+- Retry reconciliation rebuilds each affected transaction from current Branch + Follow Up data, upserts current line documents, removes stale line documents, and deletes the transaction document when no canonical lines remain.
+- Explore now requests a due-month snapshot. The new reader queries only that month by `effectiveDueDate`, caches bounded chunks with a manifest, validates all chunks before use, and uses canonical Sheets when pending sync or a concurrent revision change is detected.
+- The initial index build advances the snapshot revision so older cache keys cannot be reused.
+- Added a pure read-only helper self-test function: `firestoreReliabilitySelfTestP0661_()`.
+
+### Not yet validated in a live Apps Script runtime
+
+- The self-test function has been added but has not been executed in the Apps Script editor.
+- The Firestore month query, cursor pagination, cache limits, retry trigger, and queue recovery have not yet been integration-tested against the test project's live runtime.
+- The retry trigger has NOT been installed.
+- No queue sheet has been created in Google Sheets by this code change.
+- No Firestore or Google Sheets data has been written, and no deployment or merge has occurred.
+
+### Required next validation
+
+1. Add/synchronize the new `firestore_reliability.gs` file with the P0661 test Apps Script project alongside the updated `code.gs` and `firestore.gs`.
+2. Run `firestoreReliabilitySelfTestP0661_()` first; it is designed to be read-only.
+3. Review Apps Script execution logs and perform static review of the changed functions.
+4. With explicit test-run authorization, run controlled scenarios on disposable/test records: successful sync, simulated Firestore failure and retry, repeat update/coalescing, deletion of a whole transaction, deletion of one line within a transaction, cold/warm monthly Explore, cache expiry, and concurrent mutation/read.
+5. Only after those checks, manually install `firestoreInstallRetryTriggerP0661_()` and verify trigger execution.
+6. Record actual cold/warm timings, Firestore document counts, and Sheets reads before making any performance claim.
+
+Do not run `firestoreInitialSyncP0661()`, install the trigger, or deploy until the user explicitly authorizes the relevant test operation.
