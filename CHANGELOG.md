@@ -38,3 +38,5 @@ A Follow Up update can succeed while its Firestore projection fails. The user’
 - Replaced the P0661 Explore fast path with due-month Firestore queries and versioned, chunked CacheService snapshots. Pending sync or concurrent revision changes force a locked Sheets fallback.
 - Added read-only helper self-tests. They have not yet been executed in Apps Script.
 - No trigger installation, live Sheets/Firestore writes, initial index build, deployment, or merge was performed. Integration testing and performance measurements remain pending.
+
+- Isolated checks: all three .gs files passed JavaScript syntax parsing; 7 helper assertions passed; mocked queue retry/coalescing and snapshot cold/warm/missing-chunk recovery passed; mocked pending-sync fallback selected Sheets without a Firestore query. Live Apps Script/Firestore integration and performance tests remain pending.
