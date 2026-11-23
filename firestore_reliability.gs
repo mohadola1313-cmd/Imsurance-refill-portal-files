@@ -208,6 +208,9 @@ function firestoreRetryWorkerP0661_() {
 /** Installs one five-minute retry trigger. This function is intentionally manual. */
 function firestoreInstallRetryTriggerP0661_() {
   firestoreReliabilityAssertP0661_();
+  if (PropertiesService.getScriptProperties().getProperty('FIRESTORE_INDEX_P0661_READY') !== '1') {
+    throw new Error('Build and verify the P0661 Firestore index before installing the retry trigger.');
+  }
   ScriptApp.getProjectTriggers().forEach(function(t) {
     if (t.getHandlerFunction() === 'firestoreRetryWorkerP0661_') ScriptApp.deleteTrigger(t);
   });
