@@ -560,6 +560,8 @@ function upsertFollowStatesBatch_(updates) {
       ix=vals.length;
       vals.push([b,phone,due,tdate,normalizeTrxTime_(ttime),'',mid,'','','','', '', '', '', '',code,'','incomplete']);
       exact[key]=ix;
+    } else if(s_(vals[ix][1])!==s_(phone)) {
+      throw new Error('The purchase-line key matches a different customer phone. No status or due-date data was changed.');
     }
     vals[ix][2]=due;
     Object.keys(patch).forEach(function(k) {
