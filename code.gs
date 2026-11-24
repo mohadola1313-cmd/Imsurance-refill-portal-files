@@ -477,7 +477,7 @@ function explore(token, branch, date, min, max, ym) {
       // Read this small overlay fresh so Explore never shows a stale Firestore copy.
       follow = followMap_(b);
       exploreRows.forEach(function(r) {
-        const f = follow[flinekey_(r, b)] || follow[fkey_(r) + '|' + r[I.CODE]] || follow[fkey_(r)];
+        const f = follow[flinekey_(r, b)] || follow[fkey_(r)];
         if (!f) return;
         if (f.status) r[I.ST] = f.status;
         if (f.mod !== undefined) r[I.MOD] = f.mod;
@@ -1182,8 +1182,7 @@ function followMap_(b) {
     const lineEntry=Object.assign({},parent,entry,{a:entry.a||parent.a||0,n:entry.n||parent.n||'',u:entry.u||parent.u||''});
     const canonicalLineKey=followLineKey_(r);
     if(canonicalLineKey) m[canonicalLineKey]=lineEntry;
-    m[k+'|'+s_(r[6])+'|'+s_(r[15])]=lineEntry;
-    if(!s_(r[6])) m[k+'|'+s_(r[15])]=lineEntry;
+
   });
   return m;
 }
@@ -1321,8 +1320,8 @@ function followSnapshotProof_(branch, phone, due, date, time, followRow) {
 // follow up action, notes, saved at, permanently mirrored status, status updated at
 function detail_(r, recs, branch) {
   const baseFollow = recs[fkey_(r)] || {};
-  const f = recs[flinekey_(r,branch)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
-  const lineFollow = recs[flinekey_(r,branch)] || recs[fkey_(r) + '|' + r[I.CODE]] || {};
+  const f = recs[flinekey_(r,branch)] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
+  const lineFollow = recs[flinekey_(r,branch)] || {};
   const lineRow = Number(lineFollow.rowNo) || 0;
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
           f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
@@ -1359,7 +1358,7 @@ function cleanIn_(rows) {
     const rc = String(r[I.RC] == null ? '' : r[I.RC]).trim();
     const dt = String(r[I.DATE] || '');
     if (!rc || !isDate_(dt)) return;
-    const tm = /^\d{2}:\d{2}:\d{2}$/.test(String(r[I.TIME])) ? String(r[I.TIME]) : '';
+    const tm = normalizeTrxTime_(r[I.TIME]);
     const q = Number(r[I.QTY]), n = Number(r[I.NET]);
     out.push([rc, String(r[I.MON] || ''), dt, tm, String(r[I.NAME] || '').trim(), String(r[I.PHONE] || '').replace(/\D/g, ''),
               String(r[I.CODE] == null ? '' : r[I.CODE]).trim(), String(r[I.DESC] || '').trim(),
@@ -1598,7 +1597,7 @@ function readBranch_(b) {
   const recs=followMap_(b);
   return sh.getRange(2,1,sh.getLastRow()-1,15).getValues().map(function(r){
     const row=[s_(r[0]),s_(r[1]),s_(r[2]),s_(r[3]),s_(r[4]),s_(r[5]),s_(r[6]),s_(r[7]),Number(r[8])||0,Number(r[9])||0,Number(r[10])||0,s_(r[11]),s_(r[12]),Number(r[13])||0,s_(r[14]),'', ''];
-    const f=recs[flinekey_(row,b)] || recs[fkey_(row)+'|'+row[I.CODE]] || recs[fkey_(row)];
+    const f=recs[flinekey_(row,b)] || recs[fkey_(row)];
     if(f){ row[I.ST]=f.status==='complete'?'complete':''; row[I.MOD]=f.mod||''; }
     return row;
   });
