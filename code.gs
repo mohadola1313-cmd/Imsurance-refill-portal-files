@@ -546,36 +546,20 @@ function upsertFollowStatesBatch_(updates) {
   if (!updates || !updates.length) return;
   const sh = followSheet_(), last = sh.getLastRow();
   const vals = last > 1 ? sh.getRange(2, 1, last - 1, FOLLOW_COLS).getValues() : [];
-  const oldCount = vals.length, exact = Object.create(null), blankMid = Object.create(null);
-  function keyOf(b, phone, date, time, code, mid) {
-    return [b, phone, date, time, code, mid].map(s_).join('|');
-  }
-  vals.forEach(function(r, i) {
-    const base = [s_(r[0]),s_(r[1]),s_(r[3]),s_(r[4]),s_(r[15])].join('|');
-    const full = base + '|' + s_(r[6]);
-    if (exact[full] === undefined) exact[full] = i;
-    if (!s_(r[6]) && blankMid[base] === undefined) blankMid[base] = i;
-  });
+  const oldCount = vals.length, exact = Object.create(null);
+  vals.forEach(function(r,i){const k=followLineKey_(r);if(k&&exact[k]===undefined)exact[k]=i;});
   const now = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
   const changed = Object.create(null);
   updates.forEach(function(u) {
     const b=u.b, phone=u.phone, due=u.due, tdate=u.tdate, ttime=u.ttime;
     const code=String(u.code||''), mid=String(u.membershipId||''), patch=u.patch||{};
-    const base=[s_(b),s_(phone),s_(tdate),s_(ttime),s_(code)].join('|');
-    const full=base+'|'+s_(mid);
-    let ix=exact[full];
-    if (ix === undefined && blankMid[base] !== undefined) ix=blankMid[base];
-    if (ix === undefined) {
+    const key=purchaseLineKey_(mid,tdate,ttime,b,code);
+    if(!key)throw new Error('A status or due-date update requires Membership ID, full transaction time, branch, and item code. Refresh and retry.');
+    let ix=exact[key];
+    if(ix===undefined){
       ix=vals.length;
-      vals.push([b,phone,due,tdate,ttime,'',mid,'','','','', 'incomplete','', '', '',code,'','incomplete']);
-      exact[full]=ix;
-      if (!mid) blankMid[base]=ix;
-    } else if (mid && !s_(vals[ix][6])) {
-      vals[ix][6]=mid;
-      exact[full]=ix;
-      // This blank-Membership-ID row has now been claimed; do not reuse it
-      // for a different Membership ID later in the same batch.
-      delete blankMid[base];
+      vals.push([b,phone,due,tdate,normalizeTrxTime_(ttime),'',mid,'','','','', '', '', '', '',code,'','incomplete']);
+      exact[key]=ix;
     }
     vals[ix][2]=due;
     Object.keys(patch).forEach(function(k) {
@@ -699,13 +683,15 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
   }
 }
 
-function setModifiedDue(token, branch, phone, code, tdate, ttime, newDate) {
+function setModifiedDue(token, branch, phone, code, tdate, ttime, newDate, membershipId) {
   const b=branchOf_(token,branch), lock=LockService.getScriptLock();
   newDate=String(newDate||'');
   if(newDate&&!isDate_(newDate)) throw new Error('Choose a valid date.');
   lock.waitLock(30000);
   try {
-    const rows=readBranch_(b), r=rows.find(function(x){return x[I.PHONE]===phone&&x[I.CODE]===code&&x[I.DATE]===tdate&&x[I.TIME]===ttime;});
+    const wantedKey=purchaseLineKey_(membershipId,tdate,ttime,b,code);
+    if(!wantedKey)throw new Error('Membership ID is required for a safe due-date update. Refresh and retry.');
+    const rows=readBranch_(b), r=rows.find(function(x){return x[I.PHONE]===phone&&flinekey_(x,b)===wantedKey;});
     if(!r) throw new Error('This line was not found. Explore again and retry.');
     const value=newDate===r[I.DUE]?'':newDate, effective=value||r[I.DUE];
     if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
