@@ -1070,6 +1070,7 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
 }
 
 const FOLLOW_COLS = 18;
+const FOLLOW_STATUS_MIGRATION_PROP = 'FOLLOW_STATUS_MIGRATION_V1';
 
 // If a later purchase exists for the same Membership ID + Item Code, every older
 // purchase line for that pair is permanently marked Complete. Other invoice items are untouched.
@@ -1145,6 +1146,13 @@ function applyAutomaticRefillCompletion_(b, rows, affectedGroups) {
 function followMap_(b) {
   const sh=cloud_().getSheetByName(CONFIG.FOLLOW_SHEET), m={};
   if(!sh||sh.getLastRow()<2) return m;
+  if(PropertiesService.getScriptProperties().getProperty(FOLLOW_STATUS_MIGRATION_PROP)!=='1') {
+    throw new Error('Historical Follow Up statuses must be migrated before using this branch. Run migrateAllBranchState() once.');
+  }
+  const headers=sh.getRange(1,1,1,FOLLOW_COLS).getValues()[0].map(String);
+  if(headers[11]!=='Auto Status'||headers[16]!=='Modified Status'||headers[17]!=='Effective Status') {
+    throw new Error('Follow Up schema is not migrated. Run migrateAllBranchState() once.');
+  }
   const width=Math.max(13,sh.getLastColumn());
   const rows=sh.getRange(2,1,sh.getLastRow()-1,Math.min(width,FOLLOW_COLS)).getValues();
   const base={};
@@ -1178,9 +1186,13 @@ function followSheet_() {
     sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
     sh.getRange(1,1,sh.getMaxRows(),H.length).setNumberFormat('@');
     sh.setFrozenRows(1);
+    PropertiesService.getScriptProperties().setProperty(FOLLOW_STATUS_MIGRATION_PROP,'1');
     return sh;
   }
   if(sh.getLastRow()===0){sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');return sh;}
+  if(PropertiesService.getScriptProperties().getProperty(FOLLOW_STATUS_MIGRATION_PROP)!=='1') {
+    throw new Error('Historical Follow Up statuses must be migrated before saving. Run migrateAllBranchState() once.');
+  }
   const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
   if(headers[11]==='Status') throw new Error('Follow Up still uses the legacy Status column. Run the explicit migration before saving.');
   if(headers.slice(0,H.length).join('|')!==H.join('|')) throw new Error('Follow Up schema does not match the current 18-column layout. Run the explicit schema migration.');
@@ -1493,7 +1505,10 @@ function pending_() {
 
 function migrateFollowUpSchema_() {
   const ss=cloud_(), sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET);
-  if(!sh || sh.getLastRow()===0) return false;
+  if(!sh || sh.getLastRow()===0) {
+    PropertiesService.getScriptProperties().setProperty(FOLLOW_STATUS_MIGRATION_PROP,'1');
+    return false;
+  }
   const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Auto Status','Status Updated','Modified Due Date','Modified Date','Item Code','Modified Status','Effective Status'];
   if(sh.getMaxColumns()<H.length)sh.insertColumnsAfter(sh.getMaxColumns(),H.length-sh.getMaxColumns());
   const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
@@ -1533,6 +1548,7 @@ function migrateFollowUpSchema_() {
     });
     if(!verified)throw new Error('Follow Up status migration verification failed. Original status values were archived.');
   }
+  PropertiesService.getScriptProperties().setProperty(FOLLOW_STATUS_MIGRATION_PROP,'1');
   return true;
 }
 
