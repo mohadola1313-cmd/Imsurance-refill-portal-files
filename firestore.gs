@@ -37,8 +37,8 @@ function firestoreInitialSyncP0661() {
   rows.forEach(function (r) {
     const transactionKey = fkey_(r);
     const transactionId = firestoreStableId_('t', transactionKey);
-    const purchaseLineId = firestoreStableId_('l', flinekey_(r,branch));
-    const state = follow[flinekey_(r,branch)] || follow[transactionKey + '|' + s_(r[I.CODE])] || follow[transactionKey] || {};
+    const purchaseLineId = firestoreLineIdForRow_(r,branch);
+    const state = follow[flinekey_(r,branch)] || follow[transactionKey] || {};
     const status = s_(r[I.ST]).toLowerCase() === 'complete' ? 'complete' : 'incomplete';
     const due = s_(r[I.DUE]);
     const modifiedDueDate = s_(r[I.MOD]);
@@ -310,7 +310,11 @@ function firestoreDecodeValue_(v) {
   return null;
 }
 
-function firestoreLineIdForRow_(r, branch) { return firestoreStableId_('l', flinekey_(r,branch)); }
+function firestoreLineIdForRow_(r, branch) {
+  const key=flinekey_(r,branch);
+  if(!key) throw new Error('Cannot build a Firestore purchase-line ID: Membership ID, full transaction time, branch, and item code are required.');
+  return firestoreStableId_('l',key);
+}
 function firestoreTxIdForRow_(r) { return firestoreStableId_('t', fkey_(r)); }
 
 // Builds canonical Firestore documents from the current Sheets state. No writes occur here.
@@ -318,7 +322,7 @@ function firestoreBuildCurrentProjection_(branch, rows, followOverride) {
   const follow = followOverride || followMap_(branch), txs = Object.create(null), lines = [], now = new Date().toISOString();
   rows.forEach(function(r){
     const txKey=fkey_(r), txId=firestoreTxIdForRow_(r), lineId=firestoreLineIdForRow_(r,branch);
-    const state=follow[flinekey_(r,branch)] || follow[txKey+'|'+s_(r[I.CODE])] || follow[txKey] || {};
+    const state=follow[flinekey_(r,branch)] || follow[txKey] || {};
     const status=s_(state.status || r[I.ST]).toLowerCase()==='complete'?'complete':'incomplete';
     const actionIndex=Number(state.a)||0;
     const action=actionIndex>0&&actionIndex<=CONFIG.ACTIONS.length?CONFIG.ACTIONS[actionIndex-1]:'';
@@ -436,7 +440,7 @@ function firestoreSyncAffectedP0661_(rows) {
     const lineId = firestoreLineIdForRow_(r,FIRESTORE_INDEX_CONFIG.BRANCH);
     const txId = firestoreTxIdForRow_(r);
     const txKey = fkey_(r);
-    const state = follow[flinekey_(r,FIRESTORE_INDEX_CONFIG.BRANCH)] || follow[txKey+'|'+s_(r[I.CODE])] || follow[txKey] || {};
+    const state = follow[flinekey_(r,FIRESTORE_INDEX_CONFIG.BRANCH)] || follow[txKey] || {};
     // Follow Up is the authoritative source for status after a status toggle.
     // The in-memory branch snapshot may predate the just-saved status change.
     const status = s_(state.status || r[I.ST]).toLowerCase()==='complete' ? 'complete' : 'incomplete';
