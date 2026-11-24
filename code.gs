@@ -1502,8 +1502,10 @@ function migrateFollowUpSchema_() {
   const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
   const statusHeader=s_(headers[11]);
   const migrateOldStatus=statusHeader==='Status'||statusHeader==='Auto Status';
+  const tail=headers.slice(16,18).filter(Boolean);
   if(!migrateOldStatus || headers.slice(0,11).join('|')!==H.slice(0,11).join('|') ||
-     headers.slice(12,16).join('|')!==H.slice(12,16).join('|')) {
+     headers.slice(12,16).join('|')!==H.slice(12,16).join('|') ||
+     (tail.length && tail.join('|')!==H.slice(16,18).join('|'))) {
     throw new Error('Unrecognized Follow Up schema. No data was changed.');
   }
   const dataLast=sh.getLastRow(), rows=dataLast>1?sh.getRange(2,1,dataLast-1,H.length).getValues():[];
