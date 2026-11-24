@@ -652,9 +652,9 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
         const stableKey=purchaseLineKey_(mid,date,time,b,code), found=lineIndex[stableKey];
         if(found!==undefined){rowNo=found+2;row=existingVals[found];}
       }
-      if (rowNo && !row) {
+      if (rowNo) {
         if (rowNo < 2 || rowNo > last) throw new Error('A loaded status record is no longer available. Explore again.');
-        row = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getValues()[0];
+        if (!row) row = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getValues()[0];
         if (s_(row[0]) !== b || s_(row[1]) !== phoneKey || s_(row[3]) !== date ||
             s_(row[4]) !== time || s_(row[6]) !== mid || s_(row[15]) !== code) {
           throw new Error('A loaded status record has changed. Explore again.');
@@ -663,7 +663,7 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
         row[16] = status;
         row[17] = status || row[11] || 'incomplete';
         row[12] = stamp;
-      } else if (!rowNo) {
+      } else {
         rowNo = nextRow++;
         row = [b, phoneKey, due, date, time, '', mid, '', '', '', '', '', stamp, '', '', code, status, status];
       }
