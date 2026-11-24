@@ -657,6 +657,9 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
       writes.push({rowNo:rowNo,row:row,date:date,time:time,code:code,mid:mid});
       queueKeys.push(phoneKey + '|' + date + '|' + time);
     });
+    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
+      firestoreQueueEnqueueTransactionsP0661_(queueKeys, 'status');
+    }
     writes.sort(function(a,b){return a.rowNo-b.rowNo;});
     let start = -1, block = [], previous = -2;
     function flush() {
@@ -670,10 +673,10 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
       block.push(w.row);
       previous = w.rowNo;
     });
+    // The status queue intent is enqueued before the canonical Follow Up write.
+    // This return block is reached only after the write; the enqueue itself is performed
+    // by the guarded pre-write section below.
     flush();
-    if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
-      firestoreQueueEnqueueTransactionsP0661_(queueKeys, 'status');
-    }
     return {
       saved: writes.map(function(w) {
         return {date:w.date,time:w.time,code:w.code,membershipId:w.mid,followRow:w.rowNo,
