@@ -1510,17 +1510,22 @@ function migrateFollowUpSchema_() {
   const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Auto Status','Status Updated','Modified Due Date','Modified Date','Item Code','Modified Status','Effective Status'];
   if(sh.getMaxColumns()<H.length)sh.insertColumnsAfter(sh.getMaxColumns(),H.length-sh.getMaxColumns());
   const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
-  const legacyStatusIndex=headers.findIndex(function(h){return /^status$/i.test(String(h).trim());});
-  if(legacyStatusIndex>=0 && legacyStatusIndex!==11) throw new Error('Unsupported legacy Follow Up Status column position. No data was changed.');
-  if(legacyStatusIndex<0 && headers.slice(0,H.length).join('|')!==H.join('|')) throw new Error('Unrecognized Follow Up schema. No data was changed.');
+  const statusHeader=s_(headers[11]);
+  const migrateOldStatus=statusHeader==='Status'||statusHeader==='Auto Status';
+  if(!migrateOldStatus || headers.slice(0,11).join('|')!==H.slice(0,11).join('|') ||
+     headers.slice(12,16).join('|')!==H.slice(12,16).join('|')) {
+    throw new Error('Unrecognized Follow Up schema. No data was changed.');
+  }
   const dataLast=sh.getLastRow(), rows=dataLast>1?sh.getRange(2,1,dataLast-1,H.length).getValues():[];
   rows.forEach(function(r){
-    if(legacyStatusIndex===11){const oldStatus=s_(r[11]);if(oldStatus&&!s_(r[16]))r[16]=oldStatus;r[11]='';}
-    r[17]=s_(r[16])||s_(r[11])||'incomplete';
+    const historicalStatus=s_(r[11]);
+    if(historicalStatus&&!s_(r[16]))r[16]=historicalStatus;
+    r[11]='';
+    r[17]=s_(r[16])||'incomplete';
   });
   sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
   if(rows.length)sh.getRange(2,1,rows.length,H.length).setNumberFormat('@').setValues(rows);
-  return legacyStatusIndex===11;
+  return true;
 }
 
 function migrateBranchState_(b, schemaReady) {
