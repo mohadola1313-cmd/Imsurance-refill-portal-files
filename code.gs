@@ -1150,7 +1150,9 @@ function followMap_(b) {
   const base={};
   rows.forEach(function(r,i){
     if(s_(r[0])!==b || s_(r[15])) return;
-    const k=s_(r[1])+'|'+s_(r[3])+'|'+normalizeTrxTime_(r[4]);
+    const time=normalizeTrxTime_(r[4]);
+    if(!s_(r[1])||!isDate_(r[3])||!time)return;
+    const k=s_(r[1])+'|'+s_(r[3])+'|'+time;
     base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[17])||s_(r[16])||s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
   });
   Object.keys(base).forEach(function(k){m[k]=base[k];});
@@ -1186,7 +1188,10 @@ function followSheet_() {
 }
 
 // transaction identity ignores Due Date: changing a due date must not create another transaction record
-function fkey_(r) { return s_(r[I.PHONE]) + '|' + s_(r[I.DATE]) + '|' + normalizeTrxTime_(r[I.TIME]); }
+function fkey_(r) {
+  const owner=who_(r), date=s_(r[I.DATE]), time=normalizeTrxTime_(r[I.TIME]);
+  return owner && isDate_(date) && time ? owner+'|'+date+'|'+time : '';
+}
 function normalizeTrxTime_(value) {
   const t=s_(value);
   if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t;
@@ -1316,7 +1321,10 @@ function key_(v) { return String(v).replace(/^0+/, '') || '0'; }
 function who_(r) { return r[I.PHONE] || ('R' + key_(r[I.RC])); }
 
 // one purchase = one customer at one date and time
-function pkey_(r) { return who_(r) + '|' + r[I.DATE] + '|' + normalizeTrxTime_(r[I.TIME]); }
+function pkey_(r) {
+  const time=normalizeTrxTime_(r[I.TIME]);
+  return who_(r)+'|'+s_(r[I.DATE])+'|'+(time||('R'+key_(r[I.RC])));
+}
 
 // one purchase line = one customer, one item, at one date and time
 function lkey_(r, branch) { return purchaseLineKey_(r[I.MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]); }
