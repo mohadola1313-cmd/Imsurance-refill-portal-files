@@ -889,7 +889,7 @@ function renderList() {
   } else {
     $('th').innerHTML = ['Loyalty Name','Loyalty Phone','Item Code','Item Description','Quantity','Membership ID','Last Purchase Day','Due Date','Status','Change due date'].map(x => `<th>${x}</th>`).join('');
     $('tb').innerHTML = S.rows.map(r => {
-      const a = `data-p="${esc(r[R.PHONE])}" data-c="${esc(r[R.CODE])}" data-l="${esc(r[R.TRX_DATE])}" data-t="${esc(r[R.TIME])}"`;
+      const a = `data-p="${esc(r[R.PHONE])}" data-c="${esc(r[R.CODE])}" data-l="${esc(r[R.TRX_DATE])}" data-t="${esc(r[R.TIME])}" data-mid="${esc(r[R.MID])}"`;
       const due = `<td>${esc(r[R.DUE])}${r[R.MOD] ? `<span class="tag" title="Calculated: ${esc(r[R.CALC])}">modified</span>` : ''}</td>`;
       const edit = `<td><input type="date" class="md" value="${esc(r[R.DUE])}" aria-label="New due date"> <button type="button" class="sm sv" ${a}>Save</button>${r[R.MOD] ? ` <button type="button" class="sm rs" ${a}>Reset</button>` : ''}</td>`;
       return `<tr style="background:${col[r[R.PHONE]]}">${td(r[R.NAME], ' dir="auto"')}${td(r[R.PHONE])}${td(r[R.CODE])}${td(r[R.DESC], ' class="wrap" dir="auto"')}${td(r[R.QTY])}${td(r[R.MID])}${td(r[R.LAST])}${due}<td>${chk(r[R.FSTATUS] ? r[R.FSTATUS] === 'complete' : r[R.DONE], {p: r[R.PHONE], d: r[R.DUE], c: r[R.CODE], l: r[R.TRX_DATE], t: r[R.TIME]})}</td>${edit}</tr>`;
@@ -915,7 +915,7 @@ $('tb').addEventListener('click', async e => {
   if (!reset && !nd) return note('fmsg', 'Pick a date first.', 'bad');
   b.disabled = true;
   try {
-    await call('setModifiedDue', S.token, S.branch, b.dataset.p, b.dataset.c, b.dataset.l, b.dataset.t, nd);
+    await call('setModifiedDue', S.token, S.branch, b.dataset.p, b.dataset.c, b.dataset.l, b.dataset.t, nd, b.dataset.mid);
     await reloadList();
   } catch (err) { b.disabled = false; fail(err, 'fmsg'); }
 });
