@@ -829,6 +829,7 @@ function applyFollowSnapshotSave_(phone, due, action, notes, saved) {
     const x = byKey[String(r[R.TRX_DATE]) + '|' + String(r[R.TIME])];
     if (x) {
       r[R.FOLLOW_ROW] = Number(x.followRow) || 0;
+      r[R.SNAP_PROOF] = x.proof || r[R.SNAP_PROOF] || '';
       r[R.SNAP_STATUS] = x.status || r[R.SNAP_STATUS];
       r[R.SNAP_STATUS_UPDATED] = x.statusUpdated || r[R.SNAP_STATUS_UPDATED];
       r[R.SNAP_MOD_DUE] = x.modifiedDue || '';
