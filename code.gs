@@ -1495,13 +1495,12 @@ function pending_() {
 // are stored in the permanent Follow Up sheet and joined back into the in-memory row model.
 
 function migrateFollowUpSchema_() {
-  const sh=cloud_().getSheetByName(CONFIG.FOLLOW_SHEET);
+  const ss=cloud_(), sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET);
   if(!sh || sh.getLastRow()===0) return false;
   const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Auto Status','Status Updated','Modified Due Date','Modified Date','Item Code','Modified Status','Effective Status'];
   if(sh.getMaxColumns()<H.length)sh.insertColumnsAfter(sh.getMaxColumns(),H.length-sh.getMaxColumns());
   const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
-  const statusHeader=s_(headers[11]);
-  const migrateOldStatus=statusHeader==='Status'||statusHeader==='Auto Status';
+  const statusHeader=s_(headers[11]), migrateOldStatus=statusHeader==='Status'||statusHeader==='Auto Status';
   const tail=headers.slice(16,18).filter(Boolean);
   if(!migrateOldStatus || headers.slice(0,11).join('|')!==H.slice(0,11).join('|') ||
      headers.slice(12,16).join('|')!==H.slice(12,16).join('|') ||
@@ -1509,14 +1508,34 @@ function migrateFollowUpSchema_() {
     throw new Error('Unrecognized Follow Up schema. No data was changed.');
   }
   const dataLast=sh.getLastRow(), rows=dataLast>1?sh.getRange(2,1,dataLast-1,H.length).getValues():[];
-  rows.forEach(function(r){
-    const historicalStatus=s_(r[11]);
-    if(historicalStatus&&!s_(r[16]))r[16]=historicalStatus;
+  const stamp=Utilities.formatDate(new Date(),CONFIG.TZ,"yyyy-MM-dd'T'HH:mm:ss"), backup=[];
+  rows.forEach(function(r,i){
+    const historicalStatus=s_(r[11]), existingModified=s_(r[16]);
+    if(historicalStatus) {
+      if(!existingModified) r[16]=historicalStatus;
+      backup.push([i+2,s_(r[0]),s_(r[1]),s_(r[3]),normalizeTrxTime_(r[4]),s_(r[6]),s_(r[15]),
+        historicalStatus,existingModified,s_(r[16]),stamp]);
+    }
     r[11]='';
     r[17]=s_(r[16])||'incomplete';
   });
+  if(backup.length) {
+    const name='Follow Up Status Backup', bk=ss.getSheetByName(name)||ss.insertSheet(name);
+    if(bk.getLastRow()===0)bk.appendRow(['Source Row','Branch','Loyalty Phone','Trx Date','Trx Time','Membership ID','Item Code','Original Auto/Legacy Status','Original Modified Status','Migrated Modified Status','Archived At']);
+    bk.getRange(bk.getLastRow()+1,1,backup.length,11).setNumberFormat('@').setValues(backup);
+  }
   sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
   if(rows.length)sh.getRange(2,1,rows.length,H.length).setNumberFormat('@').setValues(rows);
+  if(backup.length) {
+    const check=sh.getRange(2,1,rows.length,H.length).getValues();
+    const verified=backup.every(function(x){
+      const r=check[x[0]-2];
+      return r && s_(r[0])===x[1] && s_(r[1])===x[2] && s_(r[3])===x[3] &&
+        normalizeTrxTime_(r[4])===x[4] && s_(r[6])===x[5] && s_(r[15])===x[6] &&
+        !s_(r[11]) && s_(r[16])===x[9];
+    });
+    if(!verified)throw new Error('Follow Up status migration verification failed. Original status values were archived.');
+  }
   return true;
 }
 
