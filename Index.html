@@ -835,6 +835,7 @@ function applyFollowSnapshotSave_(phone, due, action, notes, saved) {
       r[R.SNAP_MOD_DUE] = x.modifiedDue || '';
       r[R.SNAP_MOD_DATE] = x.modifiedDate || '';
     }
+    // Server proof is regenerated after a stable-key upsert, so the next save uses the new row identity.
   });
   delete S.draft[phone + '|' + due];
   refresh();
