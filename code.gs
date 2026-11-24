@@ -358,14 +358,14 @@ function saveUpload(token, branch, files, keepMilk) {
   try {
     const saved = readBranch_(b);
     const previousLast = lastDate_(saved);
-    const done = doneMap_(saved), mods = modMap_(saved);
+    const done = doneMap_(saved, b), mods = modMap_(saved, b);
 
     // 1. append the uploaded files; the same purchase line (phone + item + date + time) is kept once
     let incoming = [], rawCount = 0;
     (files || []).forEach(function (f) {
       const rows = cleanIn_(f.rows);
       rawCount += rows.length;
-      incoming = mergeLines_(incoming, rows);
+      incoming = mergeLines_(incoming, rows, b);
     });
     if (!incoming.length) throw new Error('No valid sales rows were found in the uploaded file.');
 
@@ -399,21 +399,22 @@ function saveUpload(token, branch, files, keepMilk) {
     });
 
     // 4. merge: a line already saved is replaced, any other line is added
-    const merged = mergeLines_(base, fresh);
+    const merged = mergeLines_(base, fresh, b);
     const duplicates = (rawCount - incoming.length) + (base.length + fresh.length - merged.length);
     const removedCodes = Object.keys(gone).map(function (k) { return gone[k]; })
       .sort(function (a, c) { return c.n - a.n; }).slice(0, 100)
       .map(function (g) { return [g.c, g.d, g.n]; });
 
     // 5. per purchase: average qt, net value sum, due date (milk rule or average qt rule)
-    const finalRows = calc_(merged, done, mods, milk);
+    const finalRows = calc_(merged, done, mods, milk, b);
+    const automaticGroups = automaticUploadGroups_(saved, fresh, b);
     if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
       const changedKeys = firestoreChangedTransactionKeysP0661_(saved, finalRows)
-        .concat(firestoreAutomaticAffectedTransactionKeysP0661_(finalRows));
+        .concat(automaticAffectedTransactionKeys_(finalRows, automaticGroups));
       firestoreQueueEnqueueTransactionsP0661_(changedKeys, 'upload');
     }
     writeBranch_(b, finalRows);
-    applyAutomaticRefillCompletion_(b, finalRows);
+    applyAutomaticRefillCompletion_(b, finalRows, automaticGroups);
     if (b === 'P0661' && typeof firestoreProcessPendingLockedP0661_ === 'function') {
       firestoreProcessPendingLockedP0661_();
     }
@@ -439,7 +440,7 @@ function deletePeriod(token, branch, from, to, dryRun) {
     if (dryRun) return { count: gone.length, purchases: nPurchases, remaining: rows.length - gone.length };
     if (!gone.length) throw new Error('No saved rows fall in this period.');
     const keep = rows.filter(function (r) { return !inside(r); }).map(base_);
-    const finalRows = calc_(keep, doneMap_(rows), modMap_(rows), milkCodes_());
+    const finalRows = calc_(keep, doneMap_(rows, b), modMap_(rows, b), milkCodes_(), b);
     if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
       firestoreQueueEnqueueTransactionsP0661_(gone.map(fkey_), 'delete');
     }
@@ -476,7 +477,7 @@ function explore(token, branch, date, min, max, ym) {
       // Read this small overlay fresh so Explore never shows a stale Firestore copy.
       follow = followMap_(b);
       exploreRows.forEach(function(r) {
-        const f = follow[flinekey_(r)] || follow[fkey_(r) + '|' + r[I.CODE]] || follow[fkey_(r)];
+        const f = follow[flinekey_(r, b)] || follow[fkey_(r) + '|' + r[I.CODE]] || follow[fkey_(r)];
         if (!f) return;
         if (f.status) r[I.ST] = f.status;
         if (f.mod !== undefined) r[I.MOD] = f.mod;
@@ -488,11 +489,7 @@ function explore(token, branch, date, min, max, ym) {
     }
   } else {
     // Compatibility path for other branches, or P0661 before its first index build.
-    const rows = readBranch_(b);
-    applyAutomaticRefillCompletion_(b, rows);
-    const refreshedRows = readBranch_(b);
-    syncFollowStatuses_(b, refreshedRows);
-    exploreRows = refreshedRows;
+    exploreRows = readBranch_(b);
     follow = followMap_(b);
   }
 
@@ -743,7 +740,6 @@ function exportDue(token, branch, from, to, status, min, max, view, fmt, selecti
   const b = branchOf_(token, branch);
   if (!isDate_(from) || !isDate_(to) || from > to) throw new Error('Choose a valid period: From must not be after To.');
   const rows = readBranch_(b);
-  syncFollowStatuses_(b, rows);
   const follow = followMap_(b);
   const lo = (min === '' || min == null) ? -Infinity : Number(min);
   const hi = (max === '' || max == null) ? Infinity : Number(max);
@@ -819,7 +815,6 @@ function monthlyAnalytics(token, branch, ym) {
   const b = branchOf_(token, branch);
   if (!/^\d{4}-\d{2}$/.test(String(ym || ''))) throw new Error('Choose a valid month.');
   const rows = readBranch_(b);
-  syncFollowStatuses_(b, rows);
   const follow = followMap_(b);
   const days = new Date(Number(ym.slice(0,4)), Number(ym.slice(5,7)), 0).getDate();
   const byDay = {};
@@ -1077,20 +1072,37 @@ const FOLLOW_COLS = 18;
 
 // If a later purchase exists for the same Membership ID + Item Code, every older
 // purchase line for that pair is permanently marked Complete. Other invoice items are untouched.
-function applyAutomaticRefillCompletion_(b, rows) {
-  rows = rows || [];
-  const latest = {};
-  rows.forEach(function(r){
-    const mid=s_(r[I.MID]), code=s_(r[I.CODE]), date=s_(r[I.DATE]), time=s_(r[I.TIME]);
-    if(!mid || !code || !date || !time) return;
-    const key=mid+'|'+code, stamp=date+'T'+time;
-    if(!latest[key] || stamp>latest[key]) latest[key]=stamp;
+function automaticUploadGroups_(savedRows, incomingRows, branch) {
+  const saved=Object.create(null), groups=Object.create(null);
+  (savedRows||[]).forEach(function(r){const k=purchaseLineKey_(r[I.MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]);if(k)saved[k]=true;});
+  (incomingRows||[]).forEach(function(r){
+    const mid=s_(r[I.MID]),code=s_(r[I.CODE]),date=s_(r[I.DATE]),time=normalizeTrxTime_(r[I.TIME]);
+    const key=purchaseLineKey_(mid,date,time,branch,code);
+    if(!key||saved[key])return;
+    const group=mid+'|'+code,stamp=date+'T'+time;
+    if(!groups[group]||stamp>groups[group])groups[group]=stamp;
   });
+  return groups;
+}
+function automaticAffectedTransactionKeys_(rows, groups) {
+  const keys=Object.create(null);
+  (rows||[]).forEach(function(r){
+    const group=s_(r[I.MID])+'|'+s_(r[I.CODE]), newest=groups&&groups[group];
+    const stamp=s_(r[I.DATE])+'T'+normalizeTrxTime_(r[I.TIME]);
+    if(newest&&stamp<newest)keys[fkey_(r)]=true;
+  });
+  return Object.keys(keys);
+}
+
+function applyAutomaticRefillCompletion_(b, rows, affectedGroups) {
+  rows = rows || [];
+  affectedGroups = affectedGroups || Object.create(null);
+  if (!Object.keys(affectedGroups).length) return {changed:false,rows:[]};
   const sh=followSheet_(), last=sh.getLastRow();
   const vals=last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
   const index={};
   vals.forEach(function(r,i){
-    if(s_(r[0])===b && s_(r[15])) index[s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4])+'|'+s_(r[6])+'|'+s_(r[15])]=i;
+    if(s_(r[0])===b && s_(r[15])) { const k=followLineKey_(r); if(k) index[k]=i; }
   });
   const now=Utilities.formatDate(new Date(),CONFIG.TZ,"yyyy-MM-dd'T'HH:mm:ss");
   let changed=false;
@@ -1099,9 +1111,10 @@ function applyAutomaticRefillCompletion_(b, rows) {
   rows.forEach(function(r){
     const mid=s_(r[I.MID]), code=s_(r[I.CODE]), date=s_(r[I.DATE]), time=s_(r[I.TIME]);
     if(!mid || !code || !date || !time) return;
-    const stamp=date+'T'+time, newest=latest[mid+'|'+code];
+    const stamp=date+'T'+normalizeTrxTime_(time), newest=affectedGroups[mid+'|'+code];
     if(!newest || stamp>=newest) return;
-    const key=s_(r[I.PHONE])+'|'+date+'|'+time+'|'+mid+'|'+code;
+    const key=purchaseLineKey_(mid,date,time,b,code);
+    if(!key) return;
     const ix=index[key];
     if(ix!==undefined){
       let rowChanged=false;
@@ -1138,6 +1151,8 @@ function followMap_(b) {
     const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]), parent=base[k]||{};
     const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[17])||s_(r[16])||s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
     const lineEntry=Object.assign({},parent,entry,{a:entry.a||parent.a||0,n:entry.n||parent.n||'',u:entry.u||parent.u||''});
+    const canonicalLineKey=followLineKey_(r);
+    if(canonicalLineKey) m[canonicalLineKey]=lineEntry;
     m[k+'|'+s_(r[6])+'|'+s_(r[15])]=lineEntry;
     if(!s_(r[6])) m[k+'|'+s_(r[15])]=lineEntry;
   });
@@ -1147,30 +1162,44 @@ function followMap_(b) {
 function followSheet_() {
   const ss=cloud_();
   let sh=ss.getSheetByName(CONFIG.FOLLOW_SHEET);
-  const isNew=!sh;
-  if(!sh) sh=ss.insertSheet(CONFIG.FOLLOW_SHEET);
   const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Auto Status','Status Updated','Modified Due Date','Modified Date','Item Code','Modified Status','Effective Status'];
-  if(sh.getLastRow()===0){
+  if(!sh) {
+    sh=ss.insertSheet(CONFIG.FOLLOW_SHEET);
+    if(sh.getMaxColumns()<H.length)sh.insertColumnsAfter(sh.getMaxColumns(),H.length-sh.getMaxColumns());
     sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
-  } else {
-    const old=sh.getRange(1,1,1,Math.max(16,sh.getLastColumn())).getValues()[0].map(String);
-    H.forEach(function(h,i){if(old[i]!==h) sh.getRange(1,i+1).setValue(h);});
-    const dataLast=sh.getLastRow();
-    if(dataLast>1){
-      const state=sh.getRange(2,1,dataLast-1,18).getValues(); let changed=false;
-      state.forEach(function(r){ if(!s_(r[17])){r[17]=s_(r[16])||s_(r[11])||'incomplete';changed=true;} });
-      if(changed) sh.getRange(2,1,state.length,18).setValues(state);
-    }
+    sh.getRange(1,1,sh.getMaxRows(),H.length).setNumberFormat('@');
+    sh.setFrozenRows(1);
+    return sh;
   }
-  // Text formatting is initialization work, not part of every Save Notes request.
-  if(isNew) sh.getRange(1,1,sh.getMaxRows(),H.length).setNumberFormat('@');
-  sh.setFrozenRows(1);
+  if(sh.getLastRow()===0){sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');return sh;}
+  const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
+  if(headers[11]==='Status') throw new Error('Follow Up still uses the legacy Status column. Run the explicit migration before saving.');
+  if(headers.slice(0,H.length).join('|')!==H.join('|')) throw new Error('Follow Up schema does not match the current 18-column layout. Run the explicit schema migration.');
   return sh;
 }
 
 // transaction identity ignores Due Date: changing a due date must not create another transaction record
 function fkey_(r) { return r[I.PHONE] + '|' + r[I.DATE] + '|' + r[I.TIME]; }
-function flinekey_(r) { return fkey_(r) + '|' + r[I.MID] + '|' + r[I.CODE]; }
+function normalizeTrxTime_(value) {
+  const t=s_(value);
+  if (/^\\d{2}:\\d{2}:\\d{2}$/.test(t)) return t;
+  if (/^\\d{2}:\\d{2}$/.test(t)) return t+':00';
+  return '';
+}
+function purchaseLineKey_(membershipId, date, time, branch, code) {
+  const mid=s_(membershipId), d=s_(date), tm=normalizeTrxTime_(time), b=s_(branch), c=s_(code);
+  if (!mid || !isDate_(d) || !tm || !b || !c) return '';
+  return mid+'|'+d+'T'+tm+'|'+b+'|'+c;
+}
+function flinekey_(r, branch) { return purchaseLineKey_(r[I.MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]); }
+function followLineKey_(r) { return purchaseLineKey_(r[6],r[3],r[4],r[0],r[15]); }
+function followBaseKey_(branch, phone, date, time, ids) {
+  const list=(ids||[]).map(s_).filter(Boolean).sort();
+  if(!s_(branch)||!s_(phone)||!isDate_(date)||!normalizeTrxTime_(time)) return '';
+  return [s_(branch),s_(phone),s_(date),normalizeTrxTime_(time),list.join(',')].join('|');
+}
+function membershipSet_(value) { return s_(value).split(',').map(function(x){return x.trim();}).filter(Boolean).sort().join(','); }
+function sameMembershipSet_(left,right) { return membershipSet_(left)===membershipSet_(right); }
 
 /* ================= search by Membership ID or mobile number ================= */
 
@@ -1263,8 +1292,8 @@ function followSnapshotProof_(branch, phone, due, date, time, followRow) {
 // follow up action, notes, saved at, permanently mirrored status, status updated at
 function detail_(r, recs, branch) {
   const baseFollow = recs[fkey_(r)] || {};
-  const f = recs[flinekey_(r)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
-  const lineFollow = recs[flinekey_(r)] || recs[fkey_(r) + '|' + r[I.CODE]] || {};
+  const f = recs[flinekey_(r,branch)] || recs[fkey_(r)+'|'+r[I.CODE]] || baseFollow || { a: 0, n: '', u: '', status: r[I.ST] === 'complete' ? 'complete' : 'incomplete', su: '' };
+  const lineFollow = recs[flinekey_(r,branch)] || recs[fkey_(r) + '|' + r[I.CODE]] || {};
   const lineRow = Number(lineFollow.rowNo) || 0;
   return [r[I.NAME], r[I.PHONE], r[I.CODE], r[I.DESC], r[I.QTY], r[I.MID], r[I.LAST], eff_(r),
           f.status === 'complete', r[I.TIME], r[I.NET], !!f.mod, r[I.DUE], f.a, f.n, f.u, f.status, f.su,
@@ -1283,16 +1312,16 @@ function who_(r) { return r[I.PHONE] || ('R' + key_(r[I.RC])); }
 function pkey_(r) { return who_(r) + '|' + r[I.DATE] + '|' + r[I.TIME]; }
 
 // one purchase line = one customer, one item, at one date and time
-function lkey_(r) { return who_(r) + '|' + r[I.CODE] + '|' + r[I.DATE] + '|' + r[I.TIME]; }
+function lkey_(r, branch) { return purchaseLineKey_(r[I.MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]); }
 
 // the due date shown: the user's modified date when there is one, otherwise the calculated one
 function eff_(r) { return r[I.MOD] || r[I.DUE]; }
 
 // the same purchase line appears once; when it appears again the newer row replaces the older one
-function mergeLines_(base, add) {
-  const m = new Map();
-  base.concat(add).forEach(function (r) { m.set(lkey_(r), r); });
-  return Array.from(m.values());
+function mergeLines_(base, add, branch) {
+  const m = new Map(), unkeyed=[];
+  base.concat(add).forEach(function (r) { const k=lkey_(r,branch); if(k) m.set(k,r); else unkeyed.push(r); });
+  return Array.from(m.values()).concat(unkeyed);
 }
 
 function cleanIn_(rows) {
@@ -1314,16 +1343,16 @@ function cleanIn_(rows) {
 function base_(r) { return r.slice(0, 10).concat([r[I.MID]]); }
 
 // a completed line stays completed as long as the same purchase line exists
-function doneMap_(rows) {
+function doneMap_(rows, branch) {
   const m = {};
-  rows.forEach(function (r) { if (r[I.ST] === 'complete') m[lkey_(r)] = true; });
+  rows.forEach(function (r) { const k=lkey_(r,branch); if (k && r[I.ST] === 'complete') m[k] = true; });
   return m;
 }
 
 // a modified due date stays with its purchase line
-function modMap_(rows) {
+function modMap_(rows, branch) {
   const m = {};
-  rows.forEach(function (r) { if (r[I.MOD]) m[lkey_(r)] = r[I.MOD]; });
+  rows.forEach(function (r) { const k=lkey_(r,branch); if (k && r[I.MOD]) m[k] = r[I.MOD]; });
   return m;
 }
 
@@ -1332,7 +1361,7 @@ function milkDays_(qty) {
   return qty >= 10 ? 28 : Math.max(0, Math.round(qty * 2.8));
 }
 
-function calc_(rows, done, mods, milk) {
+function calc_(rows, done, mods, milk, branch) {
   done = done || {}; mods = mods || {}; milk = milk || {};
   const g = {};
   rows.forEach(function (r) {
@@ -1347,8 +1376,8 @@ function calc_(rows, done, mods, milk) {
     const avg = Math.round(o.s / o.n * 1e6) / 1e6;
     const own = r[I.PHONE] ? r[I.DATE] : '';           // Last Purchase Day = the purchase's own date
     let due = '';
-    if (own) due = addDays_(own, o.milk ? milkDays_(o.mq) : (avg <= 1.5 ? 28 : (avg <= 2.5 ? 56 : 84)));
-    const k = lkey_(r);
+    if (own) due = addDays_(own, o.milk ? milkDays_(o.mq) : (avg < 1.5 ? 28 : (avg <= 2.5 ? 56 : 84)));
+    const k = lkey_(r, branch);
     return r.slice(0, 10).concat([Math.round(avg * 10000) / 10000, own, due, Math.round(o.t * 100) / 100,
       r[IN_MID] || '', done[k] ? 'complete' : '', mods[k] || '']);
   });
@@ -1445,7 +1474,28 @@ function pending_() {
 
 // Branch sheets now contain sales data only. User-controlled status and due-date overrides
 // are stored in the permanent Follow Up sheet and joined back into the in-memory row model.
-function migrateBranchState_(b) {
+
+function migrateFollowUpSchema_() {
+  const sh=cloud_().getSheetByName(CONFIG.FOLLOW_SHEET);
+  if(!sh || sh.getLastRow()===0) return false;
+  const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Auto Status','Status Updated','Modified Due Date','Modified Date','Item Code','Modified Status','Effective Status'];
+  if(sh.getMaxColumns()<H.length)sh.insertColumnsAfter(sh.getMaxColumns(),H.length-sh.getMaxColumns());
+  const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
+  const legacyStatusIndex=headers.findIndex(function(h){return /^status$/i.test(String(h).trim());});
+  if(legacyStatusIndex>=0 && legacyStatusIndex!==11) throw new Error('Unsupported legacy Follow Up Status column position. No data was changed.');
+  if(legacyStatusIndex<0 && headers.slice(0,H.length).join('|')!==H.join('|')) throw new Error('Unrecognized Follow Up schema. No data was changed.');
+  const dataLast=sh.getLastRow(), rows=dataLast>1?sh.getRange(2,1,dataLast-1,H.length).getValues():[];
+  rows.forEach(function(r){
+    if(legacyStatusIndex===11){const oldStatus=s_(r[11]);if(oldStatus&&!s_(r[16]))r[16]=oldStatus;r[11]='';}
+    r[17]=s_(r[16])||s_(r[11])||'incomplete';
+  });
+  sh.getRange(1,1,1,H.length).setValues([H]).setFontWeight('bold');
+  if(rows.length)sh.getRange(2,1,rows.length,H.length).setNumberFormat('@').setValues(rows);
+  return legacyStatusIndex===11;
+}
+
+function migrateBranchState_(b, schemaReady) {
+  if(!schemaReady)migrateFollowUpSchema_();
   const sh = cloud_().getSheetByName(b);
   if (!sh || sh.getLastRow() < 2 || sh.getLastColumn() <= 15) return;
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
@@ -1456,61 +1506,65 @@ function migrateBranchState_(b) {
   const last = fsh.getLastRow();
   const vals = last > 1 ? fsh.getRange(2,1,last-1,FOLLOW_COLS).getValues() : [];
   const index = {};
-  vals.forEach(function(r,i){ if(s_(r[0])===b) index[s_(r[1])+'|'+s_(r[2])+'|'+s_(r[3])+'|'+s_(r[4])+'|'+s_(r[15])] = i; });
+  vals.forEach(function(r,i){ if(s_(r[0])===b){const k=followLineKey_(r);if(k)index[k]=i;} });
   const now = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
   const backup = [];
   raw.forEach(function(r,i){
-    const phone=s_(r[5]), date=s_(r[2]), time=s_(r[3]), due=s_(r[16]) || s_(r[12]);
-    const status=s_(r[15]), mod=s_(r[16]) && s_(r[16])!==s_(r[12]) ? s_(r[16]) : '';
-    // Legacy layout: column 16 is Status and column 17 is Modified Due Date.
-    const legacyStatus=s_(r[15]);
-    const legacyMod=s_(r[16]);
-    if (!phone || !date || !time || (!legacyStatus && !legacyMod)) return;
+    const phone=s_(r[5]), date=s_(r[2]), time=normalizeTrxTime_(r[3]), mid=s_(r[14]);
+    const legacyStatus=s_(r[15]), legacyMod=s_(r[16]), code=s_(r[6]);
+    if (!legacyStatus && !legacyMod) return;
+    const key=purchaseLineKey_(mid,date,time,b,code);
+    if(!key) throw new Error('Legacy state row '+(i+2)+' in '+b+' has incomplete Membership ID / Trx Time / Item Code. No source columns were removed.');
     const effectiveDue=legacyMod || s_(r[12]);
-    const code=s_(r[6]);
-    const key=phone+'|'+effectiveDue+'|'+date+'|'+time+'|'+code;
     let ix=index[key];
-    if(ix==null){ ix=vals.length; index[key]=ix; vals.push([b,phone,effectiveDue,date,time,s_(r[4]),s_(r[14]),'','','','',legacyStatus==='complete'?'complete':'incomplete',now,legacyMod,now,code,'',legacyStatus==='complete'?'complete':'incomplete']); }
+    if(ix==null){ix=vals.length;index[key]=ix;vals.push([b,phone,effectiveDue,date,time,s_(r[4]),mid,'','','','', '',now,legacyMod,now,code,legacyStatus,'']);}
     else {
-      if(legacyStatus) vals[ix][11]=legacyStatus==='complete'?'complete':'incomplete';
+      if(legacyStatus && !s_(vals[ix][16])) vals[ix][16]=legacyStatus;
+      vals[ix][11]='';
       if(legacyMod) vals[ix][13]=legacyMod;
-      vals[ix][12]=now; vals[ix][14]=now;
+      vals[ix][12]=now; vals[ix][14]=now; vals[ix][2]=effectiveDue;
     }
-    backup.push([b,i+2,phone,s_(r[12]),date,time,legacyStatus,legacyMod,now,s_(r[6])]);
+    vals[ix][11]='';
+    if(legacyStatus && !s_(vals[ix][16])) vals[ix][16]=legacyStatus;
+    vals[ix][17]=s_(vals[ix][16]) || s_(vals[ix][11]) || 'incomplete';
+    backup.push([b,i+2,phone,mid,s_(r[12]),date,time,legacyStatus,s_(vals[ix][16]),legacyMod,now,code]);
   });
   if(vals.length) fsh.getRange(2,1,vals.length,FOLLOW_COLS).setNumberFormat('@').setValues(vals);
   // Verify the migrated records are present before archiving and removing legacy columns.
   const verify = fsh.getLastRow()>1 ? fsh.getRange(2,1,fsh.getLastRow()-1,FOLLOW_COLS).getValues() : [];
-  const verified = backup.every(function(x){ return verify.some(function(r){ return s_(r[0])===b && s_(r[1])===x[2] && s_(r[3])===x[4] && s_(r[4])===x[5] && s_(r[15])===x[9] && (!x[6] || s_(r[11])===(x[6]==='complete'?'complete':'incomplete')) && (s_(r[13])===x[7] || !x[7]); }); });
+  const verified = backup.every(function(x){ return verify.some(function(r){ return s_(r[0])===b && s_(r[1])===x[2] && s_(r[6])===x[3] && s_(r[3])===x[5] && normalizeTrxTime_(r[4])===x[6] && s_(r[15])===x[11] && (!x[8] || s_(r[16])===x[8]) && (s_(r[13])===x[9] || !x[9]) && !s_(r[11]); }); });
   if(!verified) throw new Error('Legacy status migration verification failed for '+b+'. Original Branch columns were retained.');
   if(backup.length){
     const ss=cloud_(), name='Branch State Backup';
     const bk=ss.getSheetByName(name)||ss.insertSheet(name);
-    if(bk.getLastRow()===0) bk.appendRow(['Branch','Source Row','Loyalty Phone','Original Due Date','Trx Date','Trx Time','Status','Modified Due Date','Archived At','Item Code']);
-    bk.getRange(bk.getLastRow()+1,1,backup.length,10).setNumberFormat('@').setValues(backup);
+    if(bk.getLastRow()===0) bk.appendRow(['Branch','Source Row','Loyalty Phone','Membership ID','Original Due Date','Trx Date','Trx Time','Status','Migrated Modified Status','Modified Due Date','Archived At','Item Code']);
+    bk.getRange(bk.getLastRow()+1,1,backup.length,12).setNumberFormat('@').setValues(backup);
   }
   // Remove the legacy Status and Modified Due Date columns only after copy + verification.
   if(sh.getLastColumn()>=17) sh.deleteColumns(16,2); else if(sh.getLastColumn()>=16) sh.deleteColumn(16);
 }
 
 function migrateAllBranchState() {
+  migrateFollowUpSchema_();
   const branches=branchList_(), results=[];
-  branches.forEach(function(b){ migrateBranchState_(b); results.push(b); });
+  branches.forEach(function(b){ migrateBranchState_(b,true); results.push(b); });
   return 'Migration checked '+results.length+' approved branch sheets. Legacy state columns were archived and removed only where verification succeeded.';
 }
 
 function readBranch_(b) {
-  migrateBranchState_(b);
   const sh = cloud_().getSheetByName(b);
   if (!sh || sh.getLastRow() < 2) return [];
-  const head = sh.getRange(1, 1, 1, 15).getValues()[0].map(String);
-  if (head.join('|') !== CONFIG.OUT.slice(0, 15).join('|')) {
+  const head = sh.getRange(1, 1, 1, Math.max(15,sh.getLastColumn())).getValues()[0].map(String);
+  if (head.slice(15).some(function(h){return /^(status|modified due date)$/i.test(String(h).trim());})) {
+    throw new Error('Legacy status columns are present in "'+b+'". Run the explicit migration before using this branch.');
+  }
+  if (head.slice(0,15).join('|') !== CONFIG.OUT.slice(0, 15).join('|')) {
     throw new Error('The sheet "' + b + '" in the cloud file uses an older column layout. Rename or delete that sheet, then upload the files again.');
   }
   const recs=followMap_(b);
   return sh.getRange(2,1,sh.getLastRow()-1,15).getValues().map(function(r){
     const row=[s_(r[0]),s_(r[1]),s_(r[2]),s_(r[3]),s_(r[4]),s_(r[5]),s_(r[6]),s_(r[7]),Number(r[8])||0,Number(r[9])||0,Number(r[10])||0,s_(r[11]),s_(r[12]),Number(r[13])||0,s_(r[14]),'', ''];
-    const f=recs[flinekey_(row)] || recs[fkey_(row)+'|'+row[I.CODE]] || recs[fkey_(row)];
+    const f=recs[flinekey_(row,b)] || recs[fkey_(row)+'|'+row[I.CODE]] || recs[fkey_(row)];
     if(f){ row[I.ST]=f.status==='complete'?'complete':''; row[I.MOD]=f.mod||''; }
     return row;
   });
