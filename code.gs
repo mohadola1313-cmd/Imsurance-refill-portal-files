@@ -873,17 +873,6 @@ function monthlyAnalytics(token, branch, ym) {
 
 /* ================= customer follow up ================= */
 
-function purchaseStatus_(rows, phone, due, tdate, ttime) {
-  let found = false, allDone = true;
-  rows.forEach(function (r) {
-    // Invoice completion is evaluated across every item in the same transaction, independent of due-date edits.
-    if (r[I.PHONE] !== phone || r[I.DATE] !== tdate || r[I.TIME] !== ttime) return;
-    found = true;
-    if (r[I.ST] !== 'complete') allDone = false;
-  });
-  return found && allDone ? 'complete' : 'incomplete';
-}
-
 // Backfill the permanent follow-up status for existing rows that predate the Status column.
 function syncFollowStatuses_(b, rows) {
   // Deprecated intentionally: historical Auto Status is never backfilled during reads.
@@ -935,7 +924,6 @@ function saveFollow(token, branch, phone, due, actionIdx, notes, snapshotTransac
     let nextSheetRow = last + 1;
     keys.forEach(function (k) {
       const p = purch[k];
-      const status = purchaseStatus_(sourceRows, phone, due, p.date, p.time);
       const key = followBaseKey_(b,phone,p.date,p.time,p.ids);
       const ix = at[key] ? at[key] - 2 : -1;
       const oldRow = ix >= 0 ? vals[ix] : [];
