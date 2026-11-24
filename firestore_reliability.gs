@@ -239,8 +239,8 @@ function firestoreInstallRetryTriggerP0661_() {
 
 function firestoreChangedTransactionKeysP0661_(beforeRows,afterRows) {
   const before = Object.create(null), after = Object.create(null), changed = Object.create(null);
-  (beforeRows||[]).forEach(function(r) { before[flinekey_(r,FIRESTORE_INDEX_CONFIG.BRANCH)] = r; });
-  (afterRows||[]).forEach(function(r) { after[flinekey_(r,FIRESTORE_INDEX_CONFIG.BRANCH)] = r; });
+  (beforeRows||[]).forEach(function(r) { const k=flinekey_(r,FIRESTORE_INDEX_CONFIG.BRANCH); if(k)before[k]=r; else changed[fkey_(r)]=true; });
+  (afterRows||[]).forEach(function(r) { const k=flinekey_(r,FIRESTORE_INDEX_CONFIG.BRANCH); if(k)after[k]=r; else changed[fkey_(r)]=true; });
   Object.keys(before).forEach(function(k) {
     if (!after[k] || JSON.stringify(before[k]) !== JSON.stringify(after[k])) changed[fkey_(before[k])] = true;
   });
