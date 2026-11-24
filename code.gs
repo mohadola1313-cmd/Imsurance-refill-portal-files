@@ -605,7 +605,7 @@ function setStatus(token, branch, phone, due, code, tdate, ttime, complete, snap
     const targets=rows.filter(function(r){return r[I.PHONE]===phone && eff_(r)===due && (code==='*'||(r[I.CODE]===code&&r[I.DATE]===tdate&&r[I.TIME]===ttime));});
     if(!targets.length) throw new Error('This row was not found. Explore again and retry.');
     if (b === 'P0661' && typeof firestoreQueueEnqueueTransactionsP0661_ === 'function') {
-      const keys=targets.map(fkey_).concat(firestoreAutomaticAffectedTransactionKeysP0661_(rows));
+      const keys=targets.map(fkey_);
       firestoreQueueEnqueueTransactionsP0661_(keys,'status');
     }
     upsertFollowStatesBatch_(targets.map(function(r){return {b:b,phone:phone,due:due,tdate:r[I.DATE],ttime:r[I.TIME],code:r[I.CODE],membershipId:r[I.MID],patch:{status:complete?'complete':'incomplete'}};}));
@@ -629,7 +629,8 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
   try {
     const sh = followSheet_();
     const last = sh.getLastRow();
-    const existingVals = last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
+    const needsStableUpsert=snapshotTargets.some(function(t){return !(Number(t.followRow)||0);});
+    const existingVals = needsStableUpsert&&last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
     const lineIndex=Object.create(null);
     existingVals.forEach(function(r,i){if(s_(r[0])===b&&s_(r[15])){const k=followLineKey_(r);if(k&&lineIndex[k]===undefined)lineIndex[k]=i;}});
     const stamp = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
@@ -1008,7 +1009,8 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
   try {
     const sh = followSheet_();
     const last = sh.getLastRow();
-    const existingVals = last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
+    const needsStableUpsert=Object.keys(transactions).some(function(k){return !(Number(transactions[k].followRow)||0);});
+    const existingVals = needsStableUpsert&&last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
     const baseIndex=Object.create(null);
     existingVals.forEach(function(r,i){
       if(s_(r[0])!==b||s_(r[15]))return;
@@ -1093,13 +1095,19 @@ const FOLLOW_COLS = 18;
 // If a later purchase exists for the same Membership ID + Item Code, every older
 // purchase line for that pair is permanently marked Complete. Other invoice items are untouched.
 function automaticUploadGroups_(savedRows, incomingRows, branch) {
-  const saved=Object.create(null), groups=Object.create(null);
-  (savedRows||[]).forEach(function(r){const k=purchaseLineKey_(r[I.MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]);if(k)saved[k]=true;});
+  const saved=Object.create(null), latestSaved=Object.create(null), groups=Object.create(null);
+  (savedRows||[]).forEach(function(r){
+    const mid=s_(r[I.MID]),code=s_(r[I.CODE]),date=s_(r[I.DATE]),time=normalizeTrxTime_(r[I.TIME]);
+    const k=purchaseLineKey_(mid,date,time,branch,code),group=mid+'|'+code,stamp=date+'T'+time;
+    if(k)saved[k]=true;
+    if(k&&(!latestSaved[group]||stamp>latestSaved[group]))latestSaved[group]=stamp;
+  });
   (incomingRows||[]).forEach(function(r){
     const mid=s_(r[I.MID]),code=s_(r[I.CODE]),date=s_(r[I.DATE]),time=normalizeTrxTime_(r[I.TIME]);
     const key=purchaseLineKey_(mid,date,time,branch,code);
     if(!key||saved[key])return;
     const group=mid+'|'+code,stamp=date+'T'+time;
+    if(latestSaved[group]&&stamp<=latestSaved[group])return;
     if(!groups[group]||stamp>groups[group])groups[group]=stamp;
   });
   return groups;
@@ -1139,7 +1147,8 @@ function applyAutomaticRefillCompletion_(b, rows, affectedGroups) {
     if(ix!==undefined){
       let rowChanged=false;
       if(s_(vals[ix][11])!=='complete'){ vals[ix][11]='complete'; vals[ix][12]=now; rowChanged=true; }
-      vals[ix][17]=s_(vals[ix][16]) || s_(vals[ix][11]) || 'incomplete';
+      const effectiveStatus=s_(vals[ix][16]) || s_(vals[ix][11]) || 'incomplete';
+      if(s_(vals[ix][17])!==effectiveStatus){vals[ix][17]=effectiveStatus;rowChanged=true;}
       if(s_(vals[ix][2])!==eff_(r)){ vals[ix][2]=eff_(r); rowChanged=true; }
       if(rowChanged){ changed=true; changedIndexes[ix]=true; changedRows.push(r); }
     } else {
