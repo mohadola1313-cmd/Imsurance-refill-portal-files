@@ -360,7 +360,7 @@ function saveUpload(token, branch, files, keepMilk) {
     const previousLast = lastDate_(saved);
     const done = doneMap_(saved, b), mods = modMap_(saved, b);
 
-    // 1. append the uploaded files; the same purchase line (phone + item + date + time) is kept once
+    // 1. append uploaded files; Purchase Line Key is Membership ID + full Trx Time + Branch + Item Code
     let incoming = [], rawCount = 0;
     (files || []).forEach(function (f) {
       const rows = cleanIn_(f.rows);
@@ -1142,7 +1142,7 @@ function applyAutomaticRefillCompletion_(b, rows, affectedGroups) {
   return {changed:changed, rows:changedRows};
 }
 
-// follow up records are keyed by branch + phone + Trx Date + Trx Time; item-state rows add Item Code
+// Follow Up base rows use branch + phone + normalized Trx Time; item rows use the canonical Purchase Line Key.
 function followMap_(b) {
   const sh=cloud_().getSheetByName(CONFIG.FOLLOW_SHEET), m={};
   if(!sh||sh.getLastRow()<2) return m;
