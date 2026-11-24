@@ -473,9 +473,9 @@ function explore(token, branch, date, min, max, ym) {
     const snapshot = firestoreReadExploreSnapshotP0661_(mon);
     if (snapshot) {
       exploreRows = snapshot.rows;
-      // Follow Up is the canonical source for user-entered actions, notes and status.
-      // Read this small overlay fresh so Explore never shows a stale Firestore copy.
-      follow = followMap_(b);
+      // The Firestore snapshot already carries the latest queued Follow Up projection.
+      // Avoid a second full Follow Up-sheet read on the Explore fast path.
+      follow = snapshot.follow || {};
       exploreRows.forEach(function(r) {
         const f = follow[flinekey_(r, b)] || follow[fkey_(r)];
         if (!f) return;
