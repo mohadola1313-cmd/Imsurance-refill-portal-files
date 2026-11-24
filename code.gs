@@ -1150,13 +1150,13 @@ function followMap_(b) {
   const base={};
   rows.forEach(function(r,i){
     if(s_(r[0])!==b || s_(r[15])) return;
-    const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]);
+    const k=s_(r[1])+'|'+s_(r[3])+'|'+normalizeTrxTime_(r[4]);
     base[k]={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[17])||s_(r[16])||s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
   });
   Object.keys(base).forEach(function(k){m[k]=base[k];});
   rows.forEach(function(r,i){
     if(s_(r[0])!==b || !s_(r[15])) return;
-    const k=s_(r[1])+'|'+s_(r[3])+'|'+s_(r[4]), parent=base[k]||{};
+    const k=s_(r[1])+'|'+s_(r[3])+'|'+normalizeTrxTime_(r[4]), parent=base[k]||{};
     const entry={a:CONFIG.ACTIONS.indexOf(s_(r[7]))+1,n:s_(r[8]),u:s_(r[9]),status:s_(r[17])||s_(r[16])||s_(r[11])||'incomplete',su:s_(r[12]),mod:s_(r[13]),md:s_(r[14]),rowNo:i+2};
     const lineEntry=Object.assign({},parent,entry,{a:entry.a||parent.a||0,n:entry.n||parent.n||'',u:entry.u||parent.u||''});
     const canonicalLineKey=followLineKey_(r);
@@ -1186,7 +1186,7 @@ function followSheet_() {
 }
 
 // transaction identity ignores Due Date: changing a due date must not create another transaction record
-function fkey_(r) { return r[I.PHONE] + '|' + r[I.DATE] + '|' + r[I.TIME]; }
+function fkey_(r) { return s_(r[I.PHONE]) + '|' + s_(r[I.DATE]) + '|' + normalizeTrxTime_(r[I.TIME]); }
 function normalizeTrxTime_(value) {
   const t=s_(value);
   if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t;
@@ -1316,7 +1316,7 @@ function key_(v) { return String(v).replace(/^0+/, '') || '0'; }
 function who_(r) { return r[I.PHONE] || ('R' + key_(r[I.RC])); }
 
 // one purchase = one customer at one date and time
-function pkey_(r) { return who_(r) + '|' + r[I.DATE] + '|' + r[I.TIME]; }
+function pkey_(r) { return who_(r) + '|' + r[I.DATE] + '|' + normalizeTrxTime_(r[I.TIME]); }
 
 // one purchase line = one customer, one item, at one date and time
 function lkey_(r, branch) { return purchaseLineKey_(r[I.MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]); }
