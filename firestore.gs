@@ -315,7 +315,11 @@ function firestoreLineIdForRow_(r, branch) {
   if(!key) throw new Error('Cannot build a Firestore purchase-line ID: Membership ID, full transaction time, branch, and item code are required.');
   return firestoreStableId_('l',key);
 }
-function firestoreTxIdForRow_(r) { return firestoreStableId_('t', fkey_(r)); }
+function firestoreTxIdForRow_(r) {
+  const key=fkey_(r);
+  if(!key) throw new Error('Cannot build a Firestore transaction ID: customer/receipt, date, and full transaction time are required.');
+  return firestoreStableId_('t',key);
+}
 
 // Builds canonical Firestore documents from the current Sheets state. No writes occur here.
 function firestoreBuildCurrentProjection_(branch, rows, followOverride) {
