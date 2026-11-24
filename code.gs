@@ -886,18 +886,9 @@ function purchaseStatus_(rows, phone, due, tdate, ttime) {
 
 // Backfill the permanent follow-up status for existing rows that predate the Status column.
 function syncFollowStatuses_(b, rows) {
-  const sh = cloud_().getSheetByName(CONFIG.FOLLOW_SHEET);
-  if (!sh || sh.getLastRow() < 2) return;
-  const vals = sh.getRange(2, 1, sh.getLastRow() - 1, FOLLOW_COLS).getValues();
-  const now = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
-  let changed = false;
-  vals.forEach(function (r) {
-    if (s_(r[0]) !== b || s_(r[11])) return;
-    const status = purchaseStatus_(rows, s_(r[1]), s_(r[2]), s_(r[3]), s_(r[4]));
-    r[11] = status; r[12] = now; changed = true;
-  });
-  if (changed) { vals.forEach(function(r){while(r.length<FOLLOW_COLS)r.push('');}); sh.getRange(2, 1, vals.length, FOLLOW_COLS).setValues(vals); }
-  return changed;
+  // Deprecated intentionally: historical Auto Status is never backfilled during reads.
+  // New automatic completion is materialized only by saveUpload().
+  return false;
 }
 
 // Saves the action (1-5, or 0 for none) and the notes of a customer for a due date.
