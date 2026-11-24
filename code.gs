@@ -1543,6 +1543,10 @@ function migrateBranchState_(b, schemaReady) {
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
   const hasLegacyState = headers.some(function(h){ return /^(status|modified due date)$/i.test(h.trim()); });
   if (!hasLegacyState) return;
+  if(String(headers[15]||'').trim().toLowerCase()!=='status' ||
+     (headers[16] && String(headers[16]).trim().toLowerCase()!=='modified due date')) {
+    throw new Error('Legacy state columns in '+b+' are not in the expected positions. No source columns were removed.');
+  }
   const raw = sh.getRange(2, 1, sh.getLastRow()-1, Math.min(sh.getLastColumn(), 17)).getValues();
   const fsh = followSheet_();
   const last = fsh.getLastRow();
