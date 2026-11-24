@@ -1082,7 +1082,7 @@ function automaticUploadGroups_(savedRows, incomingRows, branch) {
     if(k&&(!latestSaved[group]||stamp>latestSaved[group]))latestSaved[group]=stamp;
   });
   (incomingRows||[]).forEach(function(r){
-    const mid=s_(r[I.MID]),code=s_(r[I.CODE]),date=s_(r[I.DATE]),time=normalizeTrxTime_(r[I.TIME]);
+    const mid=s_(r[IN_MID]),code=s_(r[I.CODE]),date=s_(r[I.DATE]),time=normalizeTrxTime_(r[I.TIME]);
     const key=purchaseLineKey_(mid,date,time,branch,code);
     if(!key||saved[key])return;
     const group=mid+'|'+code,stamp=date+'T'+time;
@@ -1328,6 +1328,7 @@ function pkey_(r) {
 
 // one purchase line = one customer, one item, at one date and time
 function lkey_(r, branch) { return purchaseLineKey_(r[I.MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]); }
+function inputLineKey_(r, branch) { return purchaseLineKey_(r[IN_MID],r[I.DATE],r[I.TIME],branch,r[I.CODE]); }
 
 // the due date shown: the user's modified date when there is one, otherwise the calculated one
 function eff_(r) { return r[I.MOD] || r[I.DUE]; }
@@ -1335,7 +1336,7 @@ function eff_(r) { return r[I.MOD] || r[I.DUE]; }
 // the same purchase line appears once; when it appears again the newer row replaces the older one
 function mergeLines_(base, add, branch) {
   const m = new Map(), unkeyed=[];
-  base.concat(add).forEach(function (r) { const k=lkey_(r,branch); if(k) m.set(k,r); else unkeyed.push(r); });
+  base.concat(add).forEach(function (r) { const k=inputLineKey_(r,branch); if(k) m.set(k,r); else unkeyed.push(r); });
   return Array.from(m.values()).concat(unkeyed);
 }
 
@@ -1392,7 +1393,7 @@ function calc_(rows, done, mods, milk, branch) {
     const own = r[I.PHONE] ? r[I.DATE] : '';           // Last Purchase Day = the purchase's own date
     let due = '';
     if (own) due = addDays_(own, o.milk ? milkDays_(o.mq) : (avg < 1.5 ? 28 : (avg <= 2.5 ? 56 : 84)));
-    const k = lkey_(r, branch);
+    const k = inputLineKey_(r, branch);
     return r.slice(0, 10).concat([Math.round(avg * 10000) / 10000, own, due, Math.round(o.t * 100) / 100,
       r[IN_MID] || '', done[k] ? 'complete' : '', mods[k] || '']);
   });
