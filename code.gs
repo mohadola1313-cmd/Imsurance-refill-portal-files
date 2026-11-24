@@ -629,6 +629,9 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
   try {
     const sh = followSheet_();
     const last = sh.getLastRow();
+    const existingVals = last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
+    const lineIndex=Object.create(null);
+    existingVals.forEach(function(r,i){if(s_(r[0])===b&&s_(r[15])){const k=followLineKey_(r);if(k&&lineIndex[k]===undefined)lineIndex[k]=i;}});
     const stamp = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
     const writes = [], queueKeys = [], seen = Object.create(null);
     let nextRow = Math.max(last + 1, 2);
@@ -637,7 +640,7 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
       const code = String(t.code || ''), mid = String(t.membershipId || '');
       let rowNo = Number(t.followRow) || 0;
       const proof = followSnapshotLineProof_(b, phoneKey, due, date, time, rowNo, mid, code);
-      if (!isDate_(date) || !/^\d{2}:\d{2}:\d{2}$/.test(time) || !code ||
+      if (!isDate_(date) || !/^\d{2}:\d{2}:\d{2}$/.test(time) || !code || !mid ||
           String(t.proof || '') !== proof) {
         throw new Error('The loaded status snapshot is invalid. Explore again.');
       }
@@ -645,7 +648,11 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
       if (seen[key]) return;
       seen[key] = true;
       let row;
-      if (rowNo) {
+      if (!rowNo) {
+        const stableKey=purchaseLineKey_(mid,date,time,b,code), found=lineIndex[stableKey];
+        if(found!==undefined){rowNo=found+2;row=existingVals[found];}
+      }
+      if (rowNo && !row) {
         if (rowNo < 2 || rowNo > last) throw new Error('A loaded status record is no longer available. Explore again.');
         row = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getValues()[0];
         if (s_(row[0]) !== b || s_(row[1]) !== phoneKey || s_(row[3]) !== date ||
@@ -656,9 +663,9 @@ function setStatusFromSnapshot_(token, b, phone, due, complete, snapshotTargets)
         row[16] = status;
         row[17] = status || row[11] || 'incomplete';
         row[12] = stamp;
-      } else {
+      } else if (!rowNo) {
         rowNo = nextRow++;
-        row = [b, phoneKey, due, date, time, '', mid, '', '', '', '', 'incomplete', stamp, '', '', code, status, status];
+        row = [b, phoneKey, due, date, time, '', mid, '', '', '', '', '', stamp, '', '', code, status, status];
       }
       writes.push({rowNo:rowNo,row:row,date:date,time:time,code:code,mid:mid});
       queueKeys.push(phoneKey + '|' + date + '|' + time);
@@ -923,7 +930,8 @@ function saveFollow(token, branch, phone, due, actionIdx, notes, snapshotTransac
     const at = {}, duplicateTransactionRows = [];
     vals.forEach(function (r, i) {
       if (s_(r[0]) !== b || s_(r[15])) return;
-      const k = s_(r[1]) + '|' + s_(r[3]) + '|' + s_(r[4]);
+      const k = followBaseKey_(b,s_(r[1]),s_(r[3]),s_(r[4]),membershipSet_(r[6]).split(',').filter(Boolean));
+      if (!k) return;
       if (at[k]) duplicateTransactionRows.push(i + 2);
       else at[k] = i + 2;
     });
@@ -936,10 +944,10 @@ function saveFollow(token, branch, phone, due, actionIdx, notes, snapshotTransac
     keys.forEach(function (k) {
       const p = purch[k];
       const status = purchaseStatus_(sourceRows, phone, due, p.date, p.time);
-      const key = phone + '|' + p.date + '|' + p.time;
+      const key = followBaseKey_(b,phone,p.date,p.time,p.ids);
       const ix = at[key] ? at[key] - 2 : -1;
       const oldRow = ix >= 0 ? vals[ix] : [];
-      const autoStatus=oldRow[11] || status, modifiedStatus=oldRow[16] || '';
+      const autoStatus=oldRow[11] || '', modifiedStatus=oldRow[16] || ''; 
       const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), text, notes, stamp, by, autoStatus, (oldRow[12] || stamp), (oldRow[13] || ''), (oldRow[14] || ''), '', modifiedStatus, modifiedStatus || autoStatus || 'incomplete'];
       if (ix >= 0) {
         vals[ix] = row;
@@ -1000,6 +1008,13 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
   try {
     const sh = followSheet_();
     const last = sh.getLastRow();
+    const existingVals = last>1?sh.getRange(2,1,last-1,FOLLOW_COLS).getValues():[];
+    const baseIndex=Object.create(null);
+    existingVals.forEach(function(r,i){
+      if(s_(r[0])!==b||s_(r[15]))return;
+      const k=followBaseKey_(b,s_(r[1]),s_(r[3]),s_(r[4]),membershipSet_(r[6]).split(',').filter(Boolean));
+      if(k&&baseIndex[k]===undefined)baseIndex[k]=i;
+    });
     const stamp = Utilities.formatDate(new Date(), CONFIG.TZ, "yyyy-MM-dd'T'HH:mm:ss");
     const by = sess_(token).id;
     const action = idx ? CONFIG.ACTIONS[idx - 1] : '';
@@ -1009,18 +1024,22 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
       const p = transactions[key];
       let rowNo = p.followRow;
       let existingRow = null;
-      if (rowNo) {
+      if (!rowNo) {
+        const stableKey=followBaseKey_(b,phone,p.date,p.time,p.ids), found=baseIndex[stableKey];
+        if(found!==undefined){rowNo=found+2;existingRow=existingVals[found];}
+      }
+      if (rowNo && !existingRow) {
         if (rowNo < 2 || rowNo > last) throw new Error('The loaded Follow Up record is no longer available. Explore again.');
         // Read only this already-loaded Follow Up record; preserve its independent status fields.
         existingRow = sh.getRange(rowNo, 1, 1, FOLLOW_COLS).getValues()[0];
         const identity = existingRow.map(s_);
-        if (identity[0] !== b || identity[1] !== phone || identity[3] !== p.date || identity[4] !== p.time || identity[15]) {
+        if (identity[0] !== b || identity[1] !== phone || identity[3] !== p.date || identity[4] !== p.time || identity[15] || !sameMembershipSet_(identity[6],p.ids.join(','))) {
           throw new Error('The loaded Follow Up record has changed. Explore again.');
         }
-      } else {
+      } else if (!rowNo) {
         rowNo = nextRow++;
       }
-      const autoStatus = existingRow ? s_(existingRow[11]) : (p.status || 'incomplete');
+      const autoStatus = existingRow ? s_(existingRow[11]) : '';
       const modifiedStatus = existingRow ? s_(existingRow[16]) : '';
       const effectiveStatus = modifiedStatus || autoStatus || 'incomplete';
       const row = [b, phone, due, p.date, p.time, p.name, p.ids.join(', '), action, notes, stamp, by,
@@ -1058,7 +1077,8 @@ function saveFollowFromSnapshot_(token, b, phone, due, actionIdx, notes, snapsho
         const r = w.row;
         return {
           date: r[3], time: r[4], followRow: w.rowNo,
-          status: r[11], statusUpdated: r[12],
+          proof: followSnapshotProof_(b,phone,due,r[3],r[4],w.rowNo),
+          status: r[17] || r[16] || r[11] || 'incomplete', statusUpdated: r[12],
           modifiedDue: r[13], modifiedDate: r[14]
         };
       })
@@ -1182,8 +1202,8 @@ function followSheet_() {
 function fkey_(r) { return r[I.PHONE] + '|' + r[I.DATE] + '|' + r[I.TIME]; }
 function normalizeTrxTime_(value) {
   const t=s_(value);
-  if (/^\\d{2}:\\d{2}:\\d{2}$/.test(t)) return t;
-  if (/^\\d{2}:\\d{2}$/.test(t)) return t+':00';
+  if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t;
+  if (/^\d{2}:\d{2}$/.test(t)) return t+':00';
   return '';
 }
 function purchaseLineKey_(membershipId, date, time, branch, code) {
