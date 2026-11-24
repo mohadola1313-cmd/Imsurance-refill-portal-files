@@ -128,6 +128,16 @@ function firestoreInitialSyncP0661() {
   const writes = txDocs.map(function (x) { return firestoreWrite_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION, x.id, x); })
     .concat(lines.map(function (x) { return firestoreWrite_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION, x.id, x); }));
 
+  // Reconcile the existing Firestore index before marking the rebuild ready.
+  // This deletes orphaned transaction/purchase-line documents from prior uploads.
+  const oldLines = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION);
+  const oldTx = firestoreListDocuments_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION);
+  const desiredLines = Object.create(null), desiredTx = Object.create(null);
+  lines.forEach(function(x){desiredLines[x.id]=1;});
+  txDocs.forEach(function(x){desiredTx[x.id]=1;});
+  oldLines.forEach(function(x){if(!desiredLines[x.id])writes.push({delete:{name:firestoreDocumentName_(FIRESTORE_INDEX_CONFIG.LINE_COLLECTION,x.id)}});});
+  oldTx.forEach(function(x){if(!desiredTx[x.id])writes.push({delete:{name:firestoreDocumentName_(FIRESTORE_INDEX_CONFIG.TX_COLLECTION,x.id)}});});
+
   let committed = 0;
   for (let i = 0; i < writes.length; i += FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE) {
     firestoreCommit_(writes.slice(i, i + FIRESTORE_INDEX_CONFIG.COMMIT_BATCH_SIZE));
@@ -142,6 +152,7 @@ function firestoreInitialSyncP0661() {
     transactionDocumentsWritten: txDocs.length,
     purchaseLineDocumentsWritten: lines.length,
     totalDocumentsWritten: committed,
+    staleDocumentsDeleted: oldLines.filter(function(x){return !desiredLines[x.id];}).length + oldTx.filter(function(x){return !desiredTx[x.id];}).length,
     transactionStatus: {
       complete: txDocs.filter(function (x) { return x.status === 'complete'; }).length,
       incomplete: txDocs.filter(function (x) { return x.status !== 'complete'; }).length
