@@ -1503,7 +1503,7 @@ function migrateFollowUpSchema_() {
   const H=['Branch','Loyalty Phone','Due Date','Trx Date','Trx Time','Loyalty Name','Membership ID','Action','Notes','Updated','Updated By','Auto Status','Status Updated','Modified Due Date','Modified Date','Item Code','Modified Status','Effective Status'];
   if(sh.getMaxColumns()<H.length)sh.insertColumnsAfter(sh.getMaxColumns(),H.length-sh.getMaxColumns());
   const headers=sh.getRange(1,1,1,Math.max(H.length,sh.getLastColumn())).getValues()[0].map(String);
-  const statusHeader=s_(headers[11]), migrateOldStatus=statusHeader==='Status'||statusHeader==='Auto Status';
+  const statusHeader=s_(headers[11]), migrateOldStatus=statusHeader==='Status';
   const tail=headers.slice(16,18).filter(Boolean);
   if(!migrateOldStatus || headers.slice(0,11).join('|')!==H.slice(0,11).join('|') ||
      headers.slice(12,16).join('|')!==H.slice(12,16).join('|') ||
